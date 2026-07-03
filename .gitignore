@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+backend/.venv/
+
+# локальная БД и сырые снимки (личные данные конкретного абитуриента,
+# не должны попадать в git - только код)
+backend/postupi.db
+backend/raw_snapshots/
+
+# секреты
+.env
+backend/.env
+
+# служебные файлы сессии Claude Code
+.claude/scheduled_tasks.lock

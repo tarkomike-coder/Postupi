@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Поступление — мониторинг МАИ</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<style>
+  :root {
+    --bg: #0a1226;
+    --bg-card: #0f1d3d;
+    --bg-card-2: #12244a;
+    --border: #1e3260;
+    --text: #e6ecf7;
+    --muted: #8ea3c7;
+    --accent: #4f8cff;
+    --green: #2ecc71;
+    --red: #ff5a5a;
+    --amber: #ffb44d;
+    --shadow: 0 6px 20px rgba(0, 0, 0, .35);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: linear-gradient(160deg, #081024 0%, #0a1226 50%, #0c1730 100%);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 18px 48px; }
+  header.top { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+  h1 { font-size: 22px; margin: 0; font-weight: 650; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+
+  button.refresh {
+    background: var(--accent); color: #fff; border: none; border-radius: 10px;
+    padding: 10px 18px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  button.refresh:disabled { opacity: .6; cursor: default; }
+  button.refresh:hover:not(:disabled) { filter: brightness(1.1); }
+
+  section { margin-bottom: 28px; }
+  h2 { font-size: 15px; margin: 0 0 12px; font-weight: 600; color: #cdd9f0; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 16px 18px; box-shadow: var(--shadow); position: relative;
+  }
+  .card .priority-badge {
+    position: absolute; top: 14px; right: 14px; font-size: 11px; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px;
+  }
+  .card .name { font-size: 14px; font-weight: 650; padding-right: 60px; margin-bottom: 10px; }
+  .card .prob { font-size: 30px; font-weight: 750; }
+  .card .prob.green { color: var(--green); }
+  .card .prob.amber { color: var(--amber); }
+  .card .prob.red { color: var(--red); }
+  .card .row { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+  .card .row b { color: var(--text); font-weight: 600; }
+  .card .flag { display: inline-block; margin-top: 8px; font-size: 11.5px; padding: 3px 8px; border-radius: 999px; }
+  .flag.admitted { background: rgba(46,204,113,.15); color: var(--green); }
+  .flag.not-admitted { background: rgba(255,90,90,.12); color: var(--red); }
+  .flag.uncertain { background: rgba(255,180,77,.15); color: var(--amber); }
+
+  .panel { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; box-shadow: var(--shadow); }
+  .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 800px) { .charts-grid { grid-template-columns: 1fr; } }
+  .chart-box { height: 260px; }
+
+  ul.events { list-style: none; margin: 0; padding: 0; }
+  ul.events li { padding: 10px 4px; border-bottom: 1px solid var(--border); font-size: 13.5px; }
+  ul.events li:last-child { border-bottom: none; }
+  ul.events .ts { color: var(--muted); font-size: 12px; margin-right: 8px; }
+  .empty { color: var(--muted); font-size: 13.5px; padding: 10px 2px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div>
+      <h1 id="page-title">Поступление — мониторинг МАИ</h1>
+      <div class="sub" id="page-sub">загрузка…</div>
+    </div>
+    <button class="refresh" id="refresh-btn">Обновить сейчас</button>
+  </header>
+
+  <section>
+    <h2>Направления сейчас</h2>
+    <div class="cards" id="cards">
+      <div class="empty">Загрузка…</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Динамика</h2>
+    <div class="panel">
+      <div class="charts-grid">
+        <div><div class="sub" style="margin-bottom:6px">Вероятность зачисления, %</div><div class="chart-box"><canvas id="chart-prob"></canvas></div></div>
+        <div><div class="sub" style="margin-bottom:6px">Позиция в списке</div><div class="chart-box"><canvas id="chart-position"></canvas></div></div>
+        <div><div class="sub" style="margin-bottom:6px">Проходной балл (по факту согласий)</div><div class="chart-box"><canvas id="chart-cutoff"></canvas></div></div>
+        <div><div class="sub" style="margin-bottom:6px">Разрыв (балл Вари − проходной балл)</div><div class="chart-box"><canvas id="chart-gap"></canvas></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>История изменений заявления</h2>
+    <div class="panel">
+      <ul class="events" id="events"><li class="empty">Загрузка…</li></ul>
+    </div>
+  </section>
+
+</div>
+
+<script>
+const API_BASE = (location.hostname === "postupi.tarko.su")
+  ? "/api"
+  : "http://127.0.0.1:8010";
+
+const PALETTE = ["#4f8cff", "#2ecc71", "#ffb44d", "#ff5a5a", "#b98cff", "#4fd0ff", "#ff8cc8"];
+const colorFor = (i) => PALETTE[i % PALETTE.length];
+
+function probClass(p) {
+  if (p === null || p === undefined) return "";
+  if (p >= 70) return "green";
+  if (p >= 30) return "amber";
+  return "red";
+}
+
+function fmt(v, suffix = "") {
+  return (v === null || v === undefined) ? "—" : `${v}${suffix}`;
+}
+
+function fmtDate(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+async function fetchJSON(path) {
+  const res = await fetch(`${API_BASE}${path}`);
+  if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+  return res.json();
+}
+
+function renderCards(status) {
+  const el = document.getElementById("cards");
+  const dirs = status.directions || [];
+  if (!dirs.length) {
+    el.innerHTML = `<div class="empty">Нет данных — направления не найдены в последнем прогоне.</div>`;
+    return;
+  }
+  el.innerHTML = dirs.map(d => {
+    // Итоговая (безусловная) вероятность = шанс, что финал именно здесь -
+    // для младших приоритетов почти всегда мала не потому что "плохо",
+    // а потому что она с большой вероятностью пройдёт выше. Поэтому
+    // главное число на карточке - условная вероятность ("если не пройдёт
+    // выше") - это и есть надёжность направления как запасного варианта.
+    const isTop = d.deterministic_admitted;
+    const noFallbackData = !isTop && (d.conditional_probability_pct === null || d.conditional_probability_pct === undefined);
+    const headline = isTop ? d.probability_pct : d.conditional_probability_pct;
+    const headlineLabel = isTop ? "Вероятность зачисления" : "Шанс пройти сюда, если не пройдёт выше";
+    const headlineText = noFallbackData
+      ? "не понадобится"
+      : fmt(headline !== null && headline !== undefined ? Math.round(headline) : null, "%");
+
+    let flagClass = "not-admitted", flagText = "рискованный запасной вариант";
+    if (isTop) { flagClass = "admitted"; flagText = "проходит сюда сейчас"; }
+    else if (noFallbackData) { flagClass = "admitted"; flagText = "приоритет выше практически гарантирован"; }
+    else if (d.conditional_probability_pct >= 70) { flagClass = "admitted"; flagText = "надёжный запасной вариант"; }
+    else if (d.conditional_probability_pct >= 30) { flagClass = "uncertain"; flagText = "неопределённый запасной вариант"; }
+
+    return `
+    <div class="card">
+      <div class="priority-badge">приоритет ${fmt(d.priority)}</div>
+      <div class="name">${d.name}</div>
+      <div class="prob ${noFallbackData ? "" : probClass(headline)}" style="${noFallbackData ? "font-size:20px;color:var(--green)" : ""}">${headlineText}</div>
+      <div class="row" style="margin-top:-4px;margin-bottom:8px"><span></span><span style="color:var(--muted);font-size:11.5px">${noFallbackData ? "за все симуляции ни разу не потребовалось" : headlineLabel}</span></div>
+      ${!isTop ? `<div class="row"><span>Итоговый шанс попасть именно сюда</span><b>${fmt(d.probability_pct !== null ? Math.round(d.probability_pct) : null, "%")}</b></div>` : ""}
+      <div class="row"><span>Позиция</span><b>${fmt(d.position)} из ${fmt(d.seats_budget)} мест</b></div>
+      <div class="row"><span>Балл Вари</span><b>${fmt(d.total_score)}</b></div>
+      <div class="row"><span>Проходной балл</span><b>${fmt(d.cutoff_score_estimate)}</b></div>
+      <div class="row"><span>Разрыв</span><b>${fmt(d.gap)}</b></div>
+      <div class="row"><span>Согласие подано</span><b>${d.consent ? "да" : "нет"}</b></div>
+      <span class="flag ${flagClass}">${flagText}</span>
+    </div>
+  `;
+  }).join("");
+
+  document.getElementById("page-sub").textContent =
+    `${status.applicant.display_name} · код ${status.applicant.unique_code} · обновлено ${fmtDate(status.run.finished_at)}`;
+}
+
+let charts = {};
+
+function buildLineChart(canvasId, label) {
+  const ctx = document.getElementById(canvasId).getContext("2d");
+  return new Chart(ctx, {
+    type: "line",
+    data: { datasets: [] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: "nearest", axis: "x", intersect: false },
+      scales: {
+        x: { type: "time", time: { unit: "day" }, ticks: { color: "#8ea3c7" }, grid: { color: "#1e3260" } },
+        y: { ticks: { color: "#8ea3c7" }, grid: { color: "#1e3260" } },
+      },
+      plugins: { legend: { labels: { color: "#e6ecf7", boxWidth: 12, font: { size: 11 } } } },
+    },
+  });
+}
+
+function renderHistory(history) {
+  const dirs = history.directions || [];
+
+  const datasetsFor = (field) => dirs.map((d, i) => ({
+    label: d.name,
+    data: d.points.filter(p => p[field] !== null && p[field] !== undefined)
+                  .map(p => ({ x: p.timestamp, y: p[field] })),
+    borderColor: colorFor(i),
+    backgroundColor: colorFor(i),
+    tension: 0.25,
+    spanGaps: true,
+  }));
+
+  charts.prob.data.datasets = datasetsFor("probability_pct");
+  charts.position.data.datasets = datasetsFor("position");
+  charts.cutoff.data.datasets = datasetsFor("cutoff_score_estimate");
+  charts.gap.data.datasets = datasetsFor("gap");
+
+  // позиция и разрыв нагляднее, если ось "меньше = лучше" не инвертирована,
+  // просто оставляем как есть - подписи говорят сами за себя
+  Object.values(charts).forEach(c => c.update());
+}
+
+function renderEvents(events) {
+  const el = document.getElementById("events");
+  const items = events.events || [];
+  if (!items.length) {
+    el.innerHTML = `<li class="empty">Пока изменений не зафиксировано.</li>`;
+    return;
+  }
+  const labels = {
+    priority_changed: (e) => `Приоритет «${e.direction}»: ${e.old_value} → ${e.new_value}`,
+    direction_added: (e) => `Добавлено направление «${e.direction}» (приоритет ${e.new_value})`,
+    direction_removed: (e) => `Убрано направление «${e.direction}» (был приоритет ${e.old_value})`,
+  };
+  el.innerHTML = items.map(e => `
+    <li><span class="ts">${fmtDate(e.detected_at)}</span>${(labels[e.event_type] || (() => e.event_type))(e)}</li>
+  `).join("");
+}
+
+async function loadAll() {
+  try {
+    const [status, history, events] = await Promise.all([
+      fetchJSON("/postupi/status"),
+      fetchJSON("/postupi/history"),
+      fetchJSON("/postupi/events"),
+    ]);
+    renderCards(status);
+    renderHistory(history);
+    renderEvents(events);
+  } catch (err) {
+    document.getElementById("page-sub").textContent = `Ошибка загрузки: ${err.message}`;
+  }
+}
+
+document.getElementById("refresh-btn").addEventListener("click", async () => {
+  const btn = document.getElementById("refresh-btn");
+  btn.disabled = true;
+  btn.textContent = "Обновляю…";
+  try {
+    const res = await fetch(`${API_BASE}/postupi/refresh`, { method: "POST" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await loadAll();
+  } catch (err) {
+    alert(`Не удалось обновить: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Обновить сейчас";
+  }
+});
+
+charts.prob = buildLineChart("chart-prob");
+charts.position = buildLineChart("chart-position");
+charts.cutoff = buildLineChart("chart-cutoff");
+charts.gap = buildLineChart("chart-gap");
+
+loadAll();
+</script>
+</body>
+</html>

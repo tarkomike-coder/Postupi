@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "postupi-backend",
+      "runtimeExecutable": "backend/.venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "--app-dir", "backend", "main:app", "--port", "8010"],
+      "port": 8010
+    },
+    {
+      "name": "postupi-site",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8011", "--directory", "site/postupi"],
+      "port": 8011
+    }
+  ]
+}
