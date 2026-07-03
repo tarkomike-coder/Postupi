@@ -78,7 +78,13 @@ def status(db: Session = Depends(get_db)):
             "gap": sim.gap if sim else None,
             "deterministic_admitted": sim.deterministic_admitted if sim else None,
             "probability_pct": sim.probability_pct if sim else None,
-            "conditional_probability_pct": sim.conditional_probability_pct if sim else None,
+            "standalone_probability_pct": sim.standalone_probability_pct if sim else None,
+            "consented_count": sim.consented_count if sim else None,
+            "consented_position": sim.consented_position if sim else None,
+            "avg_competitor_score": sim.avg_competitor_score if sim else None,
+            "gap_to_avg": sim.gap_to_avg if sim else None,
+            "min_competitor_score": sim.min_competitor_score if sim else None,
+            "gap_to_min": sim.gap_to_min if sim else None,
         })
 
     return {
@@ -136,7 +142,9 @@ def history(db: Session = Depends(get_db)):
             "cutoff_score_estimate": sim.cutoff_score_estimate if sim else None,
             "gap": sim.gap if sim else None,
             "probability_pct": sim.probability_pct if sim else None,
-            "conditional_probability_pct": sim.conditional_probability_pct if sim else None,
+            "standalone_probability_pct": sim.standalone_probability_pct if sim else None,
+            "avg_competitor_score": sim.avg_competitor_score if sim else None,
+            "min_competitor_score": sim.min_competitor_score if sim else None,
         })
 
     return {"directions": list(series.values())}

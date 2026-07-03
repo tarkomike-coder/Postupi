@@ -155,36 +155,37 @@ function renderCards(status) {
     return;
   }
   el.innerHTML = dirs.map(d => {
-    // Итоговая (безусловная) вероятность = шанс, что финал именно здесь -
-    // для младших приоритетов почти всегда мала не потому что "плохо",
-    // а потому что она с большой вероятностью пройдёт выше. Поэтому
-    // главное число на карточке - условная вероятность ("если не пройдёт
-    // выше") - это и есть надёжность направления как запасного варианта.
-    const isTop = d.deterministic_admitted;
-    const noFallbackData = !isTop && (d.conditional_probability_pct === null || d.conditional_probability_pct === undefined);
-    const headline = isTop ? d.probability_pct : d.conditional_probability_pct;
-    const headlineLabel = isTop ? "Вероятность зачисления" : "Шанс пройти сюда, если не пройдёт выше";
-    const headlineText = noFallbackData
-      ? "не понадобится"
-      : fmt(headline !== null && headline !== undefined ? Math.round(headline) : null, "%");
+    // Главное число - независимая оценка направления САМОГО ПО СЕБЕ (как
+    // если бы оно было единственным / приоритетом 1). Не зависит от её
+    // остальных приоритетов, поэтому не бывает искусственно заниженной.
+    const headline = d.standalone_probability_pct;
+    const headlineText = fmt(headline !== null && headline !== undefined ? Math.round(headline) : null, "%");
 
-    let flagClass = "not-admitted", flagText = "рискованный запасной вариант";
-    if (isTop) { flagClass = "admitted"; flagText = "проходит сюда сейчас"; }
-    else if (noFallbackData) { flagClass = "admitted"; flagText = "приоритет выше практически гарантирован"; }
-    else if (d.conditional_probability_pct >= 70) { flagClass = "admitted"; flagText = "надёжный запасной вариант"; }
-    else if (d.conditional_probability_pct >= 30) { flagClass = "uncertain"; flagText = "неопределённый запасной вариант"; }
+    let flagClass = "not-admitted", flagText = "слабая позиция";
+    if (headline !== null && headline !== undefined) {
+      if (headline >= 70) { flagClass = "admitted"; flagText = "надёжная позиция"; }
+      else if (headline >= 30) { flagClass = "uncertain"; flagText = "неопределённая позиция"; }
+    }
+    if (d.deterministic_admitted) { flagText += " · текущий прогноз зачисления"; }
+
+    const gapRow = (label, value, gapValue) => `
+      <div class="row"><span>${label}</span><b>${value === null || value === undefined ? "ещё не сформирован" : Math.round(value * 10) / 10}</b></div>
+      ${gapValue !== null && gapValue !== undefined ? `<div class="row" style="margin-top:-6px"><span style="padding-left:10px">↳ разрыв с Варей</span><b>${gapValue > 0 ? "+" : ""}${Math.round(gapValue * 10) / 10}</b></div>` : ""}
+    `;
 
     return `
     <div class="card">
       <div class="priority-badge">приоритет ${fmt(d.priority)}</div>
       <div class="name">${d.name}</div>
-      <div class="prob ${noFallbackData ? "" : probClass(headline)}" style="${noFallbackData ? "font-size:20px;color:var(--green)" : ""}">${headlineText}</div>
-      <div class="row" style="margin-top:-4px;margin-bottom:8px"><span></span><span style="color:var(--muted);font-size:11.5px">${noFallbackData ? "за все симуляции ни разу не потребовалось" : headlineLabel}</span></div>
-      ${!isTop ? `<div class="row"><span>Итоговый шанс попасть именно сюда</span><b>${fmt(d.probability_pct !== null ? Math.round(d.probability_pct) : null, "%")}</b></div>` : ""}
-      <div class="row"><span>Позиция</span><b>${fmt(d.position)} из ${fmt(d.seats_budget)} мест</b></div>
+      <div class="prob ${probClass(headline)}">${headlineText}</div>
+      <div class="row" style="margin-top:-4px;margin-bottom:8px"><span></span><span style="color:var(--muted);font-size:11.5px">Вероятность зачисления сюда (независимо от других приоритетов)</span></div>
+      <div class="row"><span>Итоговый шанс попасть именно сюда</span><b>${fmt(d.probability_pct !== null ? Math.round(d.probability_pct) : null, "%")}</b></div>
+      <div class="row"><span>Позиция (все заявления)</span><b>${fmt(d.position)} из ${fmt(d.seats_budget)} мест</b></div>
+      <div class="row"><span>Позиция (только с согласием)</span><b>${fmt(d.consented_position)} из ${fmt(d.consented_count)}</b></div>
       <div class="row"><span>Балл Вари</span><b>${fmt(d.total_score)}</b></div>
-      <div class="row"><span>Проходной балл</span><b>${fmt(d.cutoff_score_estimate)}</b></div>
-      <div class="row"><span>Разрыв</span><b>${fmt(d.gap)}</b></div>
+      ${gapRow("Средний балл конкурентов", d.avg_competitor_score, d.gap_to_avg)}
+      ${gapRow("Минимальный балл конкурентов", d.min_competitor_score, d.gap_to_min)}
+      ${gapRow("Проходной балл (места заполнены)", d.cutoff_score_estimate, d.gap)}
       <div class="row"><span>Согласие подано</span><b>${d.consent ? "да" : "нет"}</b></div>
       <span class="flag ${flagClass}">${flagText}</span>
     </div>
