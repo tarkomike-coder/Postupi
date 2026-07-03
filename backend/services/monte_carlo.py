@@ -2,28 +2,21 @@
 детерминированный baseline + N случайных прогонов (Monte Carlo) поверх
 services.simulation.run_deferred_acceptance, и сохраняет SimulationResult.
 
-Что рандомизируем и почему (см. обсуждение с пользователем):
-- Группы 1 и 2 (согласие есть, вопрос только в том, на какой из СВОИХ
-  приоритетов человек реально попадёт) - это НЕ требует рандомизации,
-  алгоритм отложенного принятия сам разруливает каскад приоритетов
-  корректно и детерминированно.
-- Группа 3 (согласия ещё нет) - неопределённость: может подать позже.
-  С вероятностью MC_P3_NO_CONSENT_JOINS в конкретном прогоне считаем, что
-  подал(а).
-- Группа 4 (реально уйдёт в другой вуз, хотя согласие в МАИ есть) - не
-  видна из данных МАИ. С вероятностью MC_P4_CONSENT_DROPS_OUT в конкретном
-  прогоне считаем, что человек с согласием выбывает из пула целиком.
+Ключевая идея по "реальным" конкурентам (см. обсуждение с пользователем):
+позиция в сыром списке или даже "подано согласие" сами по себе мало что
+говорят. Реальный конкурент - это тот, кого алгоритм отложенного принятия
+(по ТЕКУЩИМ согласиям, детерминированно, без рандомизации) реально
+распределяет ИМЕННО СЮДА: либо это его приоритет 1, либо он не проходит на
+более высокие приоритеты и каскадом попадает сюда. Человек с согласием,
+у которого более высокий приоритет ГДЕ-ТО ЕЩЁ, и который туда реально
+проходит - сюда не считается, он не мешает (baseline_assignment это уже
+учитывает).
 
-Две вероятности на направление:
-- probability_pct - безусловная: итоговый результат ПОЛНОЙ симуляции с её
-  реальным списком приоритетов (куда её распределит алгоритм на самом деле).
-- standalone_probability_pct - независимая оценка направления САМОГО ПО
-  СЕБЕ, как если бы оно было её единственным (и потому приоритетом 1).
-  Считается через "фоновую" симуляцию БЕЗ отслеживаемых абитуриентов
-  (реальные конкуренты каскадируют по своим приоритетам как обычно), а
-  затем проверяем - попала бы она в топ-capacity мест по баллу. Не зависит
-  от того, что у неё есть другие направления - поэтому не может быть
-  искусственно занижена приоритетом 1.
+Отдельно - Monte Carlo слой оценивает неопределённость, которую baseline
+не видит:
+- Группа "без согласия" - могут подать его позже (MC_P3_NO_CONSENT_JOINS).
+- Группа "согласие есть" - могут передумать и уйти в другой вуз
+  (MC_P4_CONSENT_DROPS_OUT).
 """
 import random
 import statistics
@@ -31,7 +24,7 @@ from collections import defaultdict
 
 from config import SIM_CATEGORY, MC_TRIALS, MC_P3_NO_CONSENT_JOINS, MC_P4_CONSENT_DROPS_OUT
 from models import CompetitorSnapshot, SeatPlan, TrackedApplicant, SimulationResult
-from services.simulation import run_deferred_acceptance, cutoff_scores
+from services.simulation import run_deferred_acceptance
 
 
 def _latest_capacities(db, as_of_run_id: int) -> dict:
@@ -53,7 +46,9 @@ def _latest_capacities(db, as_of_run_id: int) -> dict:
 
 def _load_grouped_rows(db, run_id: int):
     """{unique_code: [(direction_id, priority, score, consent), ...]}
-    отсортировано по priority по возрастанию."""
+    отсортировано по priority по возрастанию. Строки с баллом 0 отбрасываются
+    сразу - это не реальный ноль, а ещё не посчитанный результат (результаты
+    ЕГЭ/индивидуальных достижений не внесены), фейковый "конкурент"."""
     rows = (
         db.query(CompetitorSnapshot)
         .filter(CompetitorSnapshot.run_id == run_id, CompetitorSnapshot.category == SIM_CATEGORY)
@@ -61,7 +56,7 @@ def _load_grouped_rows(db, run_id: int):
     )
     grouped = defaultdict(list)
     for r in rows:
-        if r.priority is None or r.total_score is None:
+        if r.priority is None or not r.total_score:
             continue
         grouped[r.unique_code].append((r.direction_id, r.priority, r.total_score, r.consent))
     for code in grouped:
@@ -71,7 +66,7 @@ def _load_grouped_rows(db, run_id: int):
 
 def _build_baseline_applicants(grouped: dict) -> dict:
     """Только те, у кого есть согласие хотя бы на одно направление -
-    baseline = "как если бы сейчас закрыли приём"."""
+    baseline = "как если бы сейчас закрыли приём", без рандомизации."""
     applicants = {}
     for code, entries in grouped.items():
         consented = [(d, p, s) for d, p, s, c in entries if c]
@@ -107,17 +102,39 @@ def _build_trial_applicants(grouped: dict, protected_codes: set) -> dict:
     return applicants
 
 
-def _competitor_score_stats(grouped: dict, tracked_codes: set) -> dict:
-    """{direction_id: [баллы согласившихся конкурентов, без отслеживаемых]}
-    - текущее реальное состояние (не рандомизация), для средних/минимумов."""
+def _real_competitors_by_direction(grouped: dict, baseline_assignment: dict, tracked_codes: set) -> dict:
+    """{direction_id: [(code, score), ...]} - те, кого baseline-каскад
+    (по текущим согласиям, без рандомизации) реально распределяет именно
+    сюда. Это и есть "реальные конкуренты" (не путать с сырым списком
+    согласившихся - часть из них каскадом уйдёт на свой более высокий
+    приоритет)."""
     by_direction = defaultdict(list)
+    for code, direction_id in baseline_assignment.items():
+        if direction_id is None or code in tracked_codes:
+            continue
+        # найдём балл этого человека по назначенному направлению
+        for d2, _p2, score, _c2 in grouped.get(code, []):
+            if d2 == direction_id:
+                by_direction[direction_id].append((code, score))
+                break
+    return by_direction
+
+
+def _group_breakdown(grouped: dict, baseline_assignment: dict, tracked_codes: set) -> dict:
+    """{direction_id: {"cascaded_in": N, "consent_elsewhere": N, "no_consent": N}}"""
+    result = defaultdict(lambda: {"cascaded_in": 0, "consent_elsewhere": 0, "no_consent": 0})
     for code, entries in grouped.items():
         if code in tracked_codes:
             continue
-        for direction_id, _priority, score, consent in entries:
-            if consent:
-                by_direction[direction_id].append(score)
-    return by_direction
+        assigned_to = baseline_assignment.get(code)
+        for direction_id, _priority, _score, consent in entries:
+            if not consent:
+                result[direction_id]["no_consent"] += 1
+            elif assigned_to == direction_id:
+                result[direction_id]["cascaded_in"] += 1
+            else:
+                result[direction_id]["consent_elsewhere"] += 1
+    return result
 
 
 def compute_simulation(db, run_id: int, trials: int = MC_TRIALS):
@@ -130,14 +147,14 @@ def compute_simulation(db, run_id: int, trials: int = MC_TRIALS):
     # --- детерминированный baseline (текущее состояние, без рандомизации) ---
     baseline_applicants = _build_baseline_applicants(grouped)
     baseline_assignment = run_deferred_acceptance(baseline_applicants, capacities)
-    baseline_cutoffs = cutoff_scores(baseline_applicants, capacities, baseline_assignment)
-    competitor_scores = _competitor_score_stats(grouped, set(tracked_codes))
+
+    real_competitors = _real_competitors_by_direction(grouped, baseline_assignment, set(tracked_codes))
+    breakdown = _group_breakdown(grouped, baseline_assignment, set(tracked_codes))
 
     # --- Monte Carlo ---
-    # tally: итоговый результат полной симуляции (с её реальным списком приоритетов)
-    # standalone_tally: попала бы она сюда, если бы это было её единственное направление
-    tally = {code: defaultdict(int) for code in tracked_codes}
-    standalone_tally = {code: defaultdict(int) for code in tracked_codes}
+    tally = {code: defaultdict(int) for code in tracked_codes}            # итоговый результат (её реальный список)
+    standalone_tally = {code: defaultdict(int) for code in tracked_codes}  # независимая оценка направления
+    predicted_cutoffs = defaultdict(list)                                  # прогноз проходного балла по прогонам
 
     for _ in range(trials):
         trial_applicants = _build_trial_applicants(grouped, set(tracked_codes))
@@ -160,6 +177,11 @@ def compute_simulation(db, run_id: int, trials: int = MC_TRIALS):
                     admitted_scores[direction_id].append(s2)
                     break
 
+        for direction_id, cap in capacities.items():
+            pool = admitted_scores.get(direction_id, [])
+            if len(pool) >= cap and cap > 0:
+                predicted_cutoffs[direction_id].append(min(pool))
+
         for code in tracked_codes:
             for direction_id, _priority, score, _consent in grouped.get(code, []):
                 cap = capacities.get(direction_id)
@@ -179,19 +201,21 @@ def compute_simulation(db, run_id: int, trials: int = MC_TRIALS):
             cap = capacities.get(direction_id)
 
             admitted_here = baseline_assignment.get(code) == direction_id
-            cutoff = baseline_cutoffs.get(direction_id)
-            gap = (score - cutoff) if cutoff is not None else None
-
             prob_pct = 100.0 * code_tally.get(direction_id, 0) / trials if trials else None
             standalone_pct = (100.0 * code_standalone_tally.get(direction_id, 0) / trials
                                if trials and cap is not None else None)
 
-            others = competitor_scores.get(direction_id, [])
-            avg_score = statistics.mean(others) if others else None
-            min_score = min(others) if others else None
-            gap_to_avg = (score - avg_score) if avg_score is not None else None
-            gap_to_min = (score - min_score) if min_score is not None else None
-            consented_position = (1 + sum(1 for s in others if s > score)) if consent else None
+            cutoffs = predicted_cutoffs.get(direction_id, [])
+            predicted_cutoff = statistics.mean(cutoffs) if cutoffs else None
+            predicted_gap = (score - predicted_cutoff) if predicted_cutoff is not None else None
+
+            real_scores = [s for c2, s in real_competitors.get(direction_id, [])]
+            real_count = len(real_scores)
+            real_position = 1 + sum(1 for s in real_scores if s > score)
+            avg_real = statistics.mean(real_scores) if real_scores else None
+            min_real = min(real_scores) if real_scores else None
+
+            bd = breakdown.get(direction_id, {"cascaded_in": 0, "consent_elsewhere": 0, "no_consent": 0})
 
             results.append(SimulationResult(
                 run_id=run_id,
@@ -200,14 +224,17 @@ def compute_simulation(db, run_id: int, trials: int = MC_TRIALS):
                 deterministic_admitted=admitted_here,
                 probability_pct=prob_pct,
                 standalone_probability_pct=standalone_pct,
-                cutoff_score_estimate=cutoff,
-                gap=gap,
-                consented_count=len(others) + (1 if consent else 0),
-                consented_position=consented_position,
-                avg_competitor_score=avg_score,
-                gap_to_avg=gap_to_avg,
-                min_competitor_score=min_score,
-                gap_to_min=gap_to_min,
+                predicted_cutoff_score=predicted_cutoff,
+                predicted_gap=predicted_gap,
+                real_competitor_count=real_count,
+                real_competitor_position=real_position,
+                avg_real_competitor_score=avg_real,
+                gap_to_avg=(score - avg_real) if avg_real is not None else None,
+                min_real_competitor_score=min_real,
+                gap_to_min=(score - min_real) if min_real is not None else None,
+                cascaded_in_count=bd["cascaded_in"],
+                consent_elsewhere_count=bd["consent_elsewhere"],
+                no_consent_count=bd["no_consent"],
                 trials=trials,
             ))
 

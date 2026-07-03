@@ -102,14 +102,23 @@ def _save_raw_snapshots(run_id: int, directions):
 
 def _log_change_events(db, run: MonitorRun, direction_by_name: dict):
     applicants = db.query(TrackedApplicant).filter(TrackedApplicant.active.is_(True)).all()
-    previous_run = (
-        db.query(MonitorRun)
-        .filter(MonitorRun.status == "ok", MonitorRun.id != run.id)
-        .order_by(MonitorRun.id.desc())
-        .first()
-    )
-
     for applicant in applicants:
+        # "предыдущий" прогон - последний ДО текущего, где для этого
+        # абитуриента реально записались строки (не по run.status: если
+        # прогон упал позже на другом шаге - например, при симуляции - но
+        # сами списки уже сохранились, это всё равно валидная точка
+        # сравнения; иначе история задваивается на каждый такой сбой).
+        previous_run_id = (
+            db.query(CompetitorSnapshot.run_id)
+            .filter(
+                CompetitorSnapshot.run_id != run.id,
+                CompetitorSnapshot.unique_code == applicant.unique_code,
+                CompetitorSnapshot.category == SIM_CATEGORY,
+            )
+            .order_by(CompetitorSnapshot.run_id.desc())
+            .limit(1)
+            .scalar()
+        )
         current_rows = (
             db.query(CompetitorSnapshot)
             .filter(
@@ -121,11 +130,11 @@ def _log_change_events(db, run: MonitorRun, direction_by_name: dict):
         current = {r.direction_id: r.priority for r in current_rows}
 
         previous = {}
-        if previous_run:
+        if previous_run_id:
             previous_rows = (
                 db.query(CompetitorSnapshot)
                 .filter(
-                    CompetitorSnapshot.run_id == previous_run.id,
+                    CompetitorSnapshot.run_id == previous_run_id,
                     CompetitorSnapshot.unique_code == applicant.unique_code,
                     CompetitorSnapshot.category == SIM_CATEGORY,
                 ).all()

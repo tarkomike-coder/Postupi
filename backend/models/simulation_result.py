@@ -23,25 +23,36 @@ class SimulationResult(Base):
     probability_pct = Column(Float, nullable=True)
 
     # Независимая оценка направления - "как если бы оно было единственным
-    # (и единственным приоритетом 1)". Не зависит от того, что у нее есть
-    # другие направления - честная оценка именно этого направления самого
-    # по себе, всегда показывается (не бывает "0%, потому что пройдёт выше").
+    # (и единственным приоритетом 1)". Не зависит от того, что у неё есть
+    # другие направления - всегда показывается.
     standalone_probability_pct = Column(Float, nullable=True)
 
-    # "Официальный" проходной балл - минимальный балл среди зачисленных,
-    # ЕСЛИ направление уже заполнено полностью (иначе None - рано).
-    cutoff_score_estimate = Column(Integer, nullable=True)
-    gap = Column(Integer, nullable=True)  # балл абитуриента - cutoff_score_estimate
+    # Прогноз проходного балла - среднее по Monte Carlo прогонам (не
+    # "дождись конца приёма, чтобы узнать" - оценка на основе текущих
+    # данных и вероятного оттока/прихода конкурентов). Всегда доступен
+    # (в отличие от "официального" балла, который считается только когда
+    # места буквально заполнены согласившимися).
+    predicted_cutoff_score = Column(Float, nullable=True)
+    predicted_gap = Column(Float, nullable=True)
 
-    # Статистика по факту ПОДАННЫХ согласий на это направление сейчас
-    # (доступна почти всегда, даже когда мест ещё не набралось) - даёт
-    # содержательную картину конкуренции без пустых "-".
-    consented_count = Column(Integer, nullable=True)
-    consented_position = Column(Integer, nullable=True)  # её место среди подавших согласие
-    avg_competitor_score = Column(Float, nullable=True)
+    # "Реальные" конкуренты - те, кого алгоритм отложенного принятия
+    # (по ТЕКУЩИМ согласиям, без рандомизации) реально распределяет именно
+    # сюда: то есть люди, которые либо указали это направление приоритетом
+    # 1, либо не проходят на свои более высокие приоритеты и каскадом
+    # попадают сюда. Человек с согласием и более высоким приоритетом,
+    # который туда реально проходит, сюда не считается - он не мешает.
+    real_competitor_count = Column(Integer, nullable=True)
+    real_competitor_position = Column(Integer, nullable=True)
+    avg_real_competitor_score = Column(Float, nullable=True)
     gap_to_avg = Column(Float, nullable=True)
-    min_competitor_score = Column(Integer, nullable=True)
+    min_real_competitor_score = Column(Integer, nullable=True)
     gap_to_min = Column(Integer, nullable=True)
+
+    # Разбивка конкурентов по группам (для отдельного графика "состав
+    # конкуренции"):
+    cascaded_in_count = Column(Integer, nullable=True)     # = real_competitor_count
+    consent_elsewhere_count = Column(Integer, nullable=True)  # согласие есть, но каскад уводит в другое место
+    no_consent_count = Column(Integer, nullable=True)      # согласия ещё нет вообще
 
     trials = Column(Integer, nullable=True)
 

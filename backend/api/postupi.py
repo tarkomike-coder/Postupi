@@ -74,21 +74,23 @@ def status(db: Session = Depends(get_db)):
             "total_score": row.total_score,
             "consent": row.consent,
             "seats_budget": seats.seats_budget if seats else None,
-            "cutoff_score_estimate": sim.cutoff_score_estimate if sim else None,
-            "gap": sim.gap if sim else None,
+            "predicted_cutoff_score": sim.predicted_cutoff_score if sim else None,
+            "predicted_gap": sim.predicted_gap if sim else None,
             "deterministic_admitted": sim.deterministic_admitted if sim else None,
             "probability_pct": sim.probability_pct if sim else None,
             "standalone_probability_pct": sim.standalone_probability_pct if sim else None,
-            "consented_count": sim.consented_count if sim else None,
-            "consented_position": sim.consented_position if sim else None,
-            "avg_competitor_score": sim.avg_competitor_score if sim else None,
+            "real_competitor_count": sim.real_competitor_count if sim else None,
+            "real_competitor_position": sim.real_competitor_position if sim else None,
+            "avg_real_competitor_score": sim.avg_real_competitor_score if sim else None,
             "gap_to_avg": sim.gap_to_avg if sim else None,
-            "min_competitor_score": sim.min_competitor_score if sim else None,
+            "min_real_competitor_score": sim.min_real_competitor_score if sim else None,
             "gap_to_min": sim.gap_to_min if sim else None,
+            "cascaded_in_count": sim.cascaded_in_count if sim else None,
+            "consent_elsewhere_count": sim.consent_elsewhere_count if sim else None,
+            "no_consent_count": sim.no_consent_count if sim else None,
         })
 
     return {
-        "applicant": {"unique_code": applicant.unique_code, "display_name": applicant.display_name},
         "run": {
             "id": run.id,
             "started_at": run.started_at,
@@ -139,12 +141,12 @@ def history(db: Session = Depends(get_db)):
             "position": snap.position,
             "total_score": snap.total_score,
             "priority": snap.priority,
-            "cutoff_score_estimate": sim.cutoff_score_estimate if sim else None,
-            "gap": sim.gap if sim else None,
+            "predicted_cutoff_score": sim.predicted_cutoff_score if sim else None,
+            "predicted_gap": sim.predicted_gap if sim else None,
             "probability_pct": sim.probability_pct if sim else None,
             "standalone_probability_pct": sim.standalone_probability_pct if sim else None,
-            "avg_competitor_score": sim.avg_competitor_score if sim else None,
-            "min_competitor_score": sim.min_competitor_score if sim else None,
+            "avg_real_competitor_score": sim.avg_real_competitor_score if sim else None,
+            "min_real_competitor_score": sim.min_real_competitor_score if sim else None,
         })
 
     return {"directions": list(series.values())}

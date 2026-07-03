@@ -51,24 +51,3 @@ def run_deferred_acceptance(applicants: Applicants, capacities: Capacities) -> D
         for score, code in heap:
             assignment[code] = direction_id
     return assignment
-
-
-def cutoff_scores(applicants: Applicants, capacities: Capacities,
-                   assignment: Dict[str, Optional[int]]) -> Dict[int, Optional[int]]:
-    """Минимальный балл среди зачисленных по направлению (проходной балл по
-    итогам симуляции). None - если направление не заполнено до конца (тогда
-    "проходной балл" не имеет смысла - хватает всем)."""
-    by_direction: Dict[int, list] = {}
-    for code, direction_id in assignment.items():
-        if direction_id is None:
-            continue
-        for d_id, _p, score in applicants[code]:
-            if d_id == direction_id:
-                by_direction.setdefault(direction_id, []).append(score)
-                break
-
-    result = {}
-    for direction_id, cap in capacities.items():
-        scores = by_direction.get(direction_id, [])
-        result[direction_id] = min(scores) if len(scores) >= cap and scores else None
-    return result

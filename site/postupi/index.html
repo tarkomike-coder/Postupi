@@ -29,7 +29,7 @@
     line-height: 1.5;
     min-height: 100vh;
   }
-  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 18px 48px; }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 24px 18px 48px; }
   header.top { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
   h1 { font-size: 22px; margin: 0; font-weight: 650; }
   .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
@@ -44,23 +44,30 @@
   section { margin-bottom: 28px; }
   h2 { font-size: 15px; margin: 0 0 12px; font-weight: 600; color: #cdd9f0; }
 
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 14px; }
   .card {
     background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px;
     padding: 16px 18px; box-shadow: var(--shadow); position: relative;
   }
   .card .priority-badge {
-    position: absolute; top: 14px; right: 14px; font-size: 11px; color: var(--muted);
-    border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px;
+    position: absolute; top: 16px; right: 16px; font-size: 11px; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; white-space: nowrap;
   }
-  .card .name { font-size: 14px; font-weight: 650; padding-right: 60px; margin-bottom: 10px; }
-  .card .prob { font-size: 30px; font-weight: 750; }
+  .card .name { font-size: 14.5px; font-weight: 650; padding-right: 66px; margin-bottom: 10px; }
+  .card .prob { font-size: 32px; font-weight: 750; line-height: 1; }
   .card .prob.green { color: var(--green); }
   .card .prob.amber { color: var(--amber); }
   .card .prob.red { color: var(--red); }
-  .card .row { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--muted); margin-top: 4px; }
-  .card .row b { color: var(--text); font-weight: 600; }
-  .card .flag { display: inline-block; margin-top: 8px; font-size: 11.5px; padding: 3px 8px; border-radius: 999px; }
+  .card .prob-label { color: var(--muted); font-size: 11.5px; margin-top: 4px; }
+  .card .final-line { font-size: 12.5px; color: var(--muted); margin: 10px 0 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+  .card .final-line b { color: var(--text); }
+
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+  .stat .k { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .02em; }
+  .stat .v { font-size: 14px; font-weight: 650; margin-top: 2px; }
+  .stat .g { font-size: 11px; color: var(--muted); margin-top: 1px; }
+
+  .card .flag { display: inline-block; margin-top: 14px; font-size: 11.5px; padding: 3px 8px; border-radius: 999px; }
   .flag.admitted { background: rgba(46,204,113,.15); color: var(--green); }
   .flag.not-admitted { background: rgba(255,90,90,.12); color: var(--red); }
   .flag.uncertain { background: rgba(255,180,77,.15); color: var(--amber); }
@@ -68,7 +75,7 @@
   .panel { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; box-shadow: var(--shadow); }
   .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   @media (max-width: 800px) { .charts-grid { grid-template-columns: 1fr; } }
-  .chart-box { height: 260px; }
+  .chart-box { height: 280px; }
 
   ul.events { list-style: none; margin: 0; padding: 0; }
   ul.events li { padding: 10px 4px; border-bottom: 1px solid var(--border); font-size: 13.5px; }
@@ -96,13 +103,25 @@
   </section>
 
   <section>
+    <h2>Состав конкуренции</h2>
+    <div class="panel">
+      <div class="sub" style="margin-bottom:10px">
+        Реальные конкуренты (кого каскад приоритетов сейчас реально распределяет сюда) ·
+        конкуренты с согласием, но их каскад уводит на другой приоритет (не мешают) ·
+        подавшие без согласия (могут присоединиться позже)
+      </div>
+      <div class="chart-box"><canvas id="chart-composition"></canvas></div>
+    </div>
+  </section>
+
+  <section>
     <h2>Динамика</h2>
     <div class="panel">
       <div class="charts-grid">
         <div><div class="sub" style="margin-bottom:6px">Вероятность зачисления, %</div><div class="chart-box"><canvas id="chart-prob"></canvas></div></div>
         <div><div class="sub" style="margin-bottom:6px">Позиция в списке</div><div class="chart-box"><canvas id="chart-position"></canvas></div></div>
-        <div><div class="sub" style="margin-bottom:6px">Проходной балл (по факту согласий)</div><div class="chart-box"><canvas id="chart-cutoff"></canvas></div></div>
-        <div><div class="sub" style="margin-bottom:6px">Разрыв (балл Вари − проходной балл)</div><div class="chart-box"><canvas id="chart-gap"></canvas></div></div>
+        <div><div class="sub" style="margin-bottom:6px">Прогноз проходного балла</div><div class="chart-box"><canvas id="chart-cutoff"></canvas></div></div>
+        <div><div class="sub" style="margin-bottom:6px">Разрыв (мой балл − прогноз проходного)</div><div class="chart-box"><canvas id="chart-gap"></canvas></div></div>
       </div>
     </div>
   </section>
@@ -135,10 +154,24 @@ function fmt(v, suffix = "") {
   return (v === null || v === undefined) ? "—" : `${v}${suffix}`;
 }
 
+function fmt1(v) {
+  return (v === null || v === undefined) ? "—" : Math.round(v * 10) / 10;
+}
+
+function fmtGap(v) {
+  if (v === null || v === undefined) return "";
+  const r = Math.round(v * 10) / 10;
+  return `${r > 0 ? "+" : ""}${r}`;
+}
+
 function fmtDate(iso) {
   if (!iso) return "—";
   const d = new Date(iso);
   return d.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function shortName(s, n = 22) {
+  return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
 async function fetchJSON(path) {
@@ -156,7 +189,7 @@ function renderCards(status) {
   }
   el.innerHTML = dirs.map(d => {
     // Главное число - независимая оценка направления САМОГО ПО СЕБЕ (как
-    // если бы оно было единственным / приоритетом 1). Не зависит от её
+    // если бы оно было единственным / приоритетом 1). Не зависит от
     // остальных приоритетов, поэтому не бывает искусственно заниженной.
     const headline = d.standalone_probability_pct;
     const headlineText = fmt(headline !== null && headline !== undefined ? Math.round(headline) : null, "%");
@@ -168,9 +201,12 @@ function renderCards(status) {
     }
     if (d.deterministic_admitted) { flagText += " · текущий прогноз зачисления"; }
 
-    const gapRow = (label, value, gapValue) => `
-      <div class="row"><span>${label}</span><b>${value === null || value === undefined ? "ещё не сформирован" : Math.round(value * 10) / 10}</b></div>
-      ${gapValue !== null && gapValue !== undefined ? `<div class="row" style="margin-top:-6px"><span style="padding-left:10px">↳ разрыв с Варей</span><b>${gapValue > 0 ? "+" : ""}${Math.round(gapValue * 10) / 10}</b></div>` : ""}
+    const stat = (label, value, gapValue) => `
+      <div class="stat">
+        <div class="k">${label}</div>
+        <div class="v">${value}</div>
+        ${gapValue ? `<div class="g">разрыв ${gapValue}</div>` : ""}
+      </div>
     `;
 
     return `
@@ -178,48 +214,84 @@ function renderCards(status) {
       <div class="priority-badge">приоритет ${fmt(d.priority)}</div>
       <div class="name">${d.name}</div>
       <div class="prob ${probClass(headline)}">${headlineText}</div>
-      <div class="row" style="margin-top:-4px;margin-bottom:8px"><span></span><span style="color:var(--muted);font-size:11.5px">Вероятность зачисления сюда (независимо от других приоритетов)</span></div>
-      <div class="row"><span>Итоговый шанс попасть именно сюда</span><b>${fmt(d.probability_pct !== null ? Math.round(d.probability_pct) : null, "%")}</b></div>
-      <div class="row"><span>Позиция (все заявления)</span><b>${fmt(d.position)} из ${fmt(d.seats_budget)} мест</b></div>
-      <div class="row"><span>Позиция (только с согласием)</span><b>${fmt(d.consented_position)} из ${fmt(d.consented_count)}</b></div>
-      <div class="row"><span>Балл Вари</span><b>${fmt(d.total_score)}</b></div>
-      ${gapRow("Средний балл конкурентов", d.avg_competitor_score, d.gap_to_avg)}
-      ${gapRow("Минимальный балл конкурентов", d.min_competitor_score, d.gap_to_min)}
-      ${gapRow("Проходной балл (места заполнены)", d.cutoff_score_estimate, d.gap)}
-      <div class="row"><span>Согласие подано</span><b>${d.consent ? "да" : "нет"}</b></div>
+      <div class="prob-label">вероятность зачисления сюда (независимо от приоритетов)</div>
+      <div class="final-line">Итоговый шанс попасть именно сюда (с учётом каскада всех приоритетов): <b>${fmt(d.probability_pct !== null ? Math.round(d.probability_pct) : null, "%")}</b></div>
+      <div class="stats">
+        ${stat("Место (все заявки)", `${fmt(d.position)} / ${fmt(d.seats_budget)}`)}
+        ${stat("Место (реальные конкур.)", `${fmt(d.real_competitor_position)} / ${fmt(d.real_competitor_count)}`)}
+        ${stat("Мой балл", fmt(d.total_score))}
+        ${stat("Прогноз проходного", fmt1(d.predicted_cutoff_score), fmtGap(d.predicted_gap))}
+        ${stat("Средний балл конкур.", fmt1(d.avg_real_competitor_score), fmtGap(d.gap_to_avg))}
+        ${stat("Мин. балл конкур.", fmt(d.min_real_competitor_score), fmtGap(d.gap_to_min))}
+      </div>
       <span class="flag ${flagClass}">${flagText}</span>
     </div>
   `;
   }).join("");
 
-  document.getElementById("page-sub").textContent =
-    `${status.applicant.display_name} · код ${status.applicant.unique_code} · обновлено ${fmtDate(status.run.finished_at)}`;
+  document.getElementById("page-sub").textContent = `обновлено ${fmtDate(status.run.finished_at)}`;
 }
 
 let charts = {};
 
-function buildLineChart(canvasId, label) {
+function buildLineChart(canvasId) {
   const ctx = document.getElementById(canvasId).getContext("2d");
   return new Chart(ctx, {
     type: "line",
     data: { datasets: [] },
     options: {
       responsive: true, maintainAspectRatio: false,
-      interaction: { mode: "nearest", axis: "x", intersect: false },
+      interaction: { mode: "nearest", intersect: true },
       scales: {
         x: { type: "time", time: { unit: "day" }, ticks: { color: "#8ea3c7" }, grid: { color: "#1e3260" } },
         y: { ticks: { color: "#8ea3c7" }, grid: { color: "#1e3260" } },
       },
-      plugins: { legend: { labels: { color: "#e6ecf7", boxWidth: 12, font: { size: 11 } } } },
+      plugins: {
+        legend: { labels: { color: "#e6ecf7", boxWidth: 12, font: { size: 11 } } },
+        tooltip: { titleFont: { size: 12 }, bodyFont: { size: 12 }, padding: 8 },
+      },
     },
   });
+}
+
+function buildCompositionChart() {
+  const ctx = document.getElementById("chart-composition").getContext("2d");
+  return new Chart(ctx, {
+    type: "bar",
+    data: { labels: [], datasets: [
+      { label: "Реальные конкуренты (каскад ведёт сюда)", backgroundColor: "#ff5a5a", data: [] },
+      { label: "Согласие, но каскад уводит выше (не мешают)", backgroundColor: "#ffb44d", data: [] },
+      { label: "Без согласия (могут присоединиться)", backgroundColor: "#4f8cff", data: [] },
+    ] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: "nearest", intersect: true },
+      scales: {
+        x: { stacked: true, ticks: { color: "#8ea3c7" }, grid: { display: false } },
+        y: { stacked: true, ticks: { color: "#8ea3c7" }, grid: { color: "#1e3260" } },
+      },
+      plugins: {
+        legend: { labels: { color: "#e6ecf7", boxWidth: 12, font: { size: 11 } } },
+        tooltip: { titleFont: { size: 12 }, bodyFont: { size: 12 }, padding: 8 },
+      },
+    },
+  });
+}
+
+function renderComposition(status) {
+  const dirs = status.directions || [];
+  charts.composition.data.labels = dirs.map(d => shortName(d.name));
+  charts.composition.data.datasets[0].data = dirs.map(d => d.cascaded_in_count ?? 0);
+  charts.composition.data.datasets[1].data = dirs.map(d => d.consent_elsewhere_count ?? 0);
+  charts.composition.data.datasets[2].data = dirs.map(d => d.no_consent_count ?? 0);
+  charts.composition.update();
 }
 
 function renderHistory(history) {
   const dirs = history.directions || [];
 
   const datasetsFor = (field) => dirs.map((d, i) => ({
-    label: d.name,
+    label: shortName(d.name),
     data: d.points.filter(p => p[field] !== null && p[field] !== undefined)
                   .map(p => ({ x: p.timestamp, y: p[field] })),
     borderColor: colorFor(i),
@@ -230,12 +302,10 @@ function renderHistory(history) {
 
   charts.prob.data.datasets = datasetsFor("probability_pct");
   charts.position.data.datasets = datasetsFor("position");
-  charts.cutoff.data.datasets = datasetsFor("cutoff_score_estimate");
-  charts.gap.data.datasets = datasetsFor("gap");
+  charts.cutoff.data.datasets = datasetsFor("predicted_cutoff_score");
+  charts.gap.data.datasets = datasetsFor("predicted_gap");
 
-  // позиция и разрыв нагляднее, если ось "меньше = лучше" не инвертирована,
-  // просто оставляем как есть - подписи говорят сами за себя
-  Object.values(charts).forEach(c => c.update());
+  Object.entries(charts).forEach(([key, c]) => { if (key !== "composition") c.update(); });
 }
 
 function renderEvents(events) {
@@ -263,6 +333,7 @@ async function loadAll() {
       fetchJSON("/postupi/events"),
     ]);
     renderCards(status);
+    renderComposition(status);
     renderHistory(history);
     renderEvents(events);
   } catch (err) {
@@ -290,6 +361,7 @@ charts.prob = buildLineChart("chart-prob");
 charts.position = buildLineChart("chart-position");
 charts.cutoff = buildLineChart("chart-cutoff");
 charts.gap = buildLineChart("chart-gap");
+charts.composition = buildCompositionChart();
 
 loadAll();
 </script>
