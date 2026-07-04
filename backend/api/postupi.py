@@ -20,10 +20,15 @@ def get_db():
         db.close()
 
 
-def _latest_ok_run(db: Session) -> MonitorRun:
-    run = db.query(MonitorRun).filter(MonitorRun.status == "ok").order_by(MonitorRun.id.desc()).first()
+def _latest_ok_run(db: Session, university: str) -> MonitorRun:
+    run = (
+        db.query(MonitorRun)
+        .filter(MonitorRun.status == "ok", MonitorRun.university == university)
+        .order_by(MonitorRun.id.desc())
+        .first()
+    )
     if not run:
-        raise HTTPException(status_code=404, detail="Ещё нет ни одного успешного прогона")
+        raise HTTPException(status_code=404, detail=f"Ещё нет ни одного успешного прогона для {university}")
     return run
 
 
@@ -37,8 +42,8 @@ def _latest_seats(db: Session, direction_id: int):
 
 
 @router.get("/status")
-def status(db: Session = Depends(get_db)):
-    run = _latest_ok_run(db)
+def status(university: str = "МАИ", db: Session = Depends(get_db)):
+    run = _latest_ok_run(db, university)
     applicant = db.query(TrackedApplicant).filter(TrackedApplicant.active.is_(True)).first()
     if not applicant:
         raise HTTPException(status_code=404, detail="Нет отслеживаемого абитуриента")
@@ -92,10 +97,12 @@ def status(db: Session = Depends(get_db)):
         })
 
     return {
+        "university": university,
         "run": {
             "id": run.id,
             "started_at": run.started_at,
             "finished_at": run.finished_at,
+            "trigger": run.trigger,
             "source_generation_token": run.source_generation_token,
         },
         "directions": directions,
@@ -103,12 +110,17 @@ def status(db: Session = Depends(get_db)):
 
 
 @router.get("/history")
-def history(db: Session = Depends(get_db)):
+def history(university: str = "МАИ", db: Session = Depends(get_db)):
     applicant = db.query(TrackedApplicant).filter(TrackedApplicant.active.is_(True)).first()
     if not applicant:
         raise HTTPException(status_code=404, detail="Нет отслеживаемого абитуриента")
 
-    ok_runs = db.query(MonitorRun).filter(MonitorRun.status == "ok").order_by(MonitorRun.id.asc()).all()
+    ok_runs = (
+        db.query(MonitorRun)
+        .filter(MonitorRun.status == "ok", MonitorRun.university == university)
+        .order_by(MonitorRun.id.asc())
+        .all()
+    )
     run_ids = [r.id for r in ok_runs]
     run_time_by_id = {r.id: r.started_at for r in ok_runs}
 
@@ -157,14 +169,15 @@ def history(db: Session = Depends(get_db)):
 
 
 @router.get("/events")
-def events(db: Session = Depends(get_db)):
+def events(university: str = "МАИ", db: Session = Depends(get_db)):
     applicant = db.query(TrackedApplicant).filter(TrackedApplicant.active.is_(True)).first()
     if not applicant:
         raise HTTPException(status_code=404, detail="Нет отслеживаемого абитуриента")
 
     rows = (
         db.query(ApplicantChangeEvent)
-        .filter(ApplicantChangeEvent.tracked_applicant_id == applicant.id)
+        .join(Direction, Direction.id == ApplicantChangeEvent.direction_id)
+        .filter(ApplicantChangeEvent.tracked_applicant_id == applicant.id, Direction.university == university)
         .order_by(ApplicantChangeEvent.id.desc())
         .limit(200)
         .all()
@@ -195,3 +208,11 @@ def refresh():
         "directions_scraped": run.directions_scraped,
         "finished_at": run.finished_at,
     }
+
+
+@router.get("/universities")
+def universities(db: Session = Depends(get_db)):
+    """Список вузов, по которым уже есть хотя бы один успешный прогон -
+    фронтенд использует это, чтобы понять, показывать ли вкладку Бауманки."""
+    rows = db.query(MonitorRun.university).filter(MonitorRun.status == "ok").distinct().all()
+    return {"universities": sorted({r[0] for r in rows})}

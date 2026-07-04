@@ -22,10 +22,12 @@ def _normalize_name(name: str) -> str:
     return name.strip().replace("ё", "е").replace("Ё", "Е")
 
 
-def _get_or_create_direction(db, name: str) -> Direction:
-    direction = db.query(Direction).filter(Direction.name == name).first()
+def _get_or_create_direction(db, name: str, university: str = "МАИ") -> Direction:
+    direction = db.query(Direction).filter(
+        Direction.name == name, Direction.university == university,
+    ).first()
     if direction is None:
-        direction = Direction(name=name)
+        direction = Direction(name=name, university=university)
         db.add(direction)
         db.flush()
     return direction
@@ -110,10 +112,12 @@ def _log_change_events(db, run: MonitorRun, direction_by_name: dict):
         # сравнения; иначе история задваивается на каждый такой сбой).
         previous_run_id = (
             db.query(CompetitorSnapshot.run_id)
+            .join(Direction, Direction.id == CompetitorSnapshot.direction_id)
             .filter(
                 CompetitorSnapshot.run_id != run.id,
                 CompetitorSnapshot.unique_code == applicant.unique_code,
                 CompetitorSnapshot.category == SIM_CATEGORY,
+                Direction.university == run.university,
             )
             .order_by(CompetitorSnapshot.run_id.desc())
             .limit(1)
@@ -163,7 +167,7 @@ def _log_change_events(db, run: MonitorRun, direction_by_name: dict):
 
 def run_full_sync(trigger: str = "schedule") -> MonitorRun:
     db = SessionLocal()
-    run = MonitorRun(status="running", trigger=trigger)
+    run = MonitorRun(status="running", trigger=trigger, university="МАИ")
     db.add(run)
     db.commit()
     db.refresh(run)
