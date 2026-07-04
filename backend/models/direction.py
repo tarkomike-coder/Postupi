@@ -13,3 +13,4 @@ class Direction(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(300), nullable=False, unique=True, index=True)
     fgos_code = Column(String(20), nullable=True)
+    cutoff_2025 = Column(Integer, nullable=True)  # проходной балл прошлого года (справочно)

@@ -69,6 +69,7 @@ def status(db: Session = Depends(get_db)):
             "direction_id": direction.id,
             "name": direction.name,
             "fgos_code": direction.fgos_code,
+            "cutoff_2025": direction.cutoff_2025,
             "priority": row.priority,
             "position": row.position,
             "total_score": row.total_score,
@@ -130,7 +131,8 @@ def history(db: Session = Depends(get_db)):
     direction_ids = {s.direction_id for s in snapshots}
     directions_by_id = {d.id: d for d in db.query(Direction).filter(Direction.id.in_(direction_ids))}
 
-    series = {d_id: {"direction_id": d_id, "name": directions_by_id[d_id].name, "points": []}
+    series = {d_id: {"direction_id": d_id, "name": directions_by_id[d_id].name,
+                      "cutoff_2025": directions_by_id[d_id].cutoff_2025, "points": []}
               for d_id in direction_ids}
 
     for snap in sorted(snapshots, key=lambda s: s.run_id):
