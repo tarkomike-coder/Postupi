@@ -218,11 +218,11 @@ function renderCards(status) {
       <div class="final-line">Итоговый шанс попасть именно сюда (с учётом каскада всех приоритетов): <b>${fmt(d.probability_pct !== null ? Math.round(d.probability_pct) : null, "%")}</b></div>
       <div class="stats">
         ${stat("Место (все заявки)", `${fmt(d.position)} / ${fmt(d.seats_budget)}`)}
-        ${stat("Место (реальные конкур.)", `${fmt(d.real_competitor_position)} / ${fmt(d.real_competitor_count)}`)}
+        ${stat("Место (реальные)", `${fmt(d.real_competitor_position)} / ${fmt(d.real_competitor_count)}`)}
         ${stat("Мой балл", fmt(d.total_score))}
         ${stat("Прогноз проходного", fmt1(d.predicted_cutoff_score), fmtGap(d.predicted_gap))}
-        ${stat("Средний балл конкур.", fmt1(d.avg_real_competitor_score), fmtGap(d.gap_to_avg))}
-        ${stat("Мин. балл конкур.", fmt(d.min_real_competitor_score), fmtGap(d.gap_to_min))}
+        ${stat("Средний балл", fmt1(d.avg_real_competitor_score), fmtGap(d.gap_to_avg))}
+        ${stat("Мин. балл", fmt(d.min_real_competitor_score), fmtGap(d.gap_to_min))}
       </div>
       <span class="flag ${flagClass}">${flagText}</span>
     </div>
