@@ -124,7 +124,7 @@
     <div class="panel">
       <div class="charts-grid">
         <div><div class="sub" style="margin-bottom:6px">Вероятность зачисления, % (независимо от приоритетов)</div><div class="chart-box"><canvas id="chart-prob"></canvas></div></div>
-        <div><div class="sub" style="margin-bottom:6px">Позиция в списке</div><div class="chart-box"><canvas id="chart-position"></canvas></div></div>
+        <div><div class="sub" style="margin-bottom:6px">Реальное место</div><div class="chart-box"><canvas id="chart-position"></canvas></div></div>
         <div><div class="sub" style="margin-bottom:6px">Прогноз проходного балла</div><div class="chart-box"><canvas id="chart-cutoff"></canvas></div></div>
         <div><div class="sub" style="margin-bottom:6px">Разрыв (мой балл − прогноз проходного)</div><div class="chart-box"><canvas id="chart-gap"></canvas></div></div>
       </div>
@@ -307,7 +307,7 @@ function renderHistory(history) {
   }));
 
   charts.prob.data.datasets = datasetsFor("standalone_probability_pct");
-  charts.position.data.datasets = datasetsFor("position");
+  charts.position.data.datasets = datasetsFor("real_competitor_position");
   charts.cutoff.data.datasets = datasetsFor("predicted_cutoff_score");
   charts.gap.data.datasets = datasetsFor("predicted_gap");
 

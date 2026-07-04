@@ -145,6 +145,8 @@ def history(db: Session = Depends(get_db)):
             "predicted_gap": sim.predicted_gap if sim else None,
             "probability_pct": sim.probability_pct if sim else None,
             "standalone_probability_pct": sim.standalone_probability_pct if sim else None,
+            "real_competitor_position": sim.real_competitor_position if sim else None,
+            "real_competitor_count": sim.real_competitor_count if sim else None,
             "avg_real_competitor_score": sim.avg_real_competitor_score if sim else None,
             "min_real_competitor_score": sim.min_real_competitor_score if sim else None,
         })
