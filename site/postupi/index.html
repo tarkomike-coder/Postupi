@@ -105,12 +105,18 @@
   <section>
     <h2>Состав конкуренции</h2>
     <div class="panel">
-      <div class="sub" style="margin-bottom:10px">
-        Реальные конкуренты (кого каскад приоритетов сейчас реально распределяет сюда) ·
-        конкуренты с согласием, но их каскад уводит на другой приоритет (не мешают) ·
-        подавшие без согласия (могут присоединиться позже)
+      <div class="charts-grid">
+        <div>
+          <div class="sub" style="margin-bottom:6px">Кто реально конкурирует сейчас</div>
+          <div class="sub" style="margin-bottom:6px">каскад приоритетов ведёт сюда · vs · есть согласие, но каскад уводит выше (не мешают)</div>
+          <div class="chart-box"><canvas id="chart-composition-real"></canvas></div>
+        </div>
+        <div>
+          <div class="sub" style="margin-bottom:6px">Без согласия — могут присоединиться позже</div>
+          <div class="sub" style="margin-bottom:6px">отдельный масштаб (обычно на порядок больше первых двух групп)</div>
+          <div class="chart-box"><canvas id="chart-composition-pending"></canvas></div>
+        </div>
       </div>
-      <div class="chart-box"><canvas id="chart-composition"></canvas></div>
     </div>
   </section>
 
@@ -218,7 +224,7 @@ function renderCards(status) {
       <div class="final-line">Итоговый шанс попасть именно сюда (с учётом каскада всех приоритетов): <b>${fmt(d.probability_pct !== null ? Math.round(d.probability_pct) : null, "%")}</b></div>
       <div class="stats">
         ${stat("Место (все заявки)", `${fmt(d.position)} / ${fmt(d.seats_budget)}`)}
-        ${stat("Место (реальные)", `${fmt(d.real_competitor_position)} / ${fmt(d.real_competitor_count)}`)}
+        ${stat("Место среди тех, кто реально идёт сюда", `${fmt(d.real_competitor_position)} / ${fmt(d.real_competitor_count)}`)}
         ${stat("Мой балл", fmt(d.total_score))}
         ${stat("Прогноз проходного", fmt1(d.predicted_cutoff_score), fmtGap(d.predicted_gap))}
         ${stat("Средний балл", fmt1(d.avg_real_competitor_score), fmtGap(d.gap_to_avg))}
@@ -254,21 +260,17 @@ function buildLineChart(canvasId) {
   });
 }
 
-function buildCompositionChart() {
-  const ctx = document.getElementById("chart-composition").getContext("2d");
+function buildBarChart(canvasId, datasetDefs) {
+  const ctx = document.getElementById(canvasId).getContext("2d");
   return new Chart(ctx, {
     type: "bar",
-    data: { labels: [], datasets: [
-      { label: "Реальные конкуренты (каскад ведёт сюда)", backgroundColor: "#ff5a5a", data: [] },
-      { label: "Согласие, но каскад уводит выше (не мешают)", backgroundColor: "#ffb44d", data: [] },
-      { label: "Без согласия (могут присоединиться)", backgroundColor: "#4f8cff", data: [] },
-    ] },
+    data: { labels: [], datasets: datasetDefs.map(d => ({ ...d, data: [] })) },
     options: {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: "nearest", intersect: true },
       scales: {
-        x: { stacked: true, ticks: { color: "#8ea3c7" }, grid: { display: false } },
-        y: { stacked: true, ticks: { color: "#8ea3c7" }, grid: { color: "#1e3260" } },
+        x: { ticks: { color: "#8ea3c7" }, grid: { display: false } },
+        y: { ticks: { color: "#8ea3c7" }, grid: { color: "#1e3260" } },
       },
       plugins: {
         legend: { labels: { color: "#e6ecf7", boxWidth: 12, font: { size: 11 } } },
@@ -280,11 +282,16 @@ function buildCompositionChart() {
 
 function renderComposition(status) {
   const dirs = status.directions || [];
-  charts.composition.data.labels = dirs.map(d => shortName(d.name));
-  charts.composition.data.datasets[0].data = dirs.map(d => d.cascaded_in_count ?? 0);
-  charts.composition.data.datasets[1].data = dirs.map(d => d.consent_elsewhere_count ?? 0);
-  charts.composition.data.datasets[2].data = dirs.map(d => d.no_consent_count ?? 0);
-  charts.composition.update();
+  const labels = dirs.map(d => shortName(d.name));
+
+  charts.compositionReal.data.labels = labels;
+  charts.compositionReal.data.datasets[0].data = dirs.map(d => d.cascaded_in_count ?? 0);
+  charts.compositionReal.data.datasets[1].data = dirs.map(d => d.consent_elsewhere_count ?? 0);
+  charts.compositionReal.update();
+
+  charts.compositionPending.data.labels = labels;
+  charts.compositionPending.data.datasets[0].data = dirs.map(d => d.no_consent_count ?? 0);
+  charts.compositionPending.update();
 }
 
 function renderHistory(history) {
@@ -305,7 +312,7 @@ function renderHistory(history) {
   charts.cutoff.data.datasets = datasetsFor("predicted_cutoff_score");
   charts.gap.data.datasets = datasetsFor("predicted_gap");
 
-  Object.entries(charts).forEach(([key, c]) => { if (key !== "composition") c.update(); });
+  Object.entries(charts).forEach(([key, c]) => { if (!key.startsWith("composition")) c.update(); });
 }
 
 function renderEvents(events) {
@@ -361,7 +368,13 @@ charts.prob = buildLineChart("chart-prob");
 charts.position = buildLineChart("chart-position");
 charts.cutoff = buildLineChart("chart-cutoff");
 charts.gap = buildLineChart("chart-gap");
-charts.composition = buildCompositionChart();
+charts.compositionReal = buildBarChart("chart-composition-real", [
+  { label: "Каскад ведёт сюда (реальные конкуренты)", backgroundColor: "#ff5a5a" },
+  { label: "Согласие есть, но каскад уводит выше (не мешают)", backgroundColor: "#ffb44d" },
+]);
+charts.compositionPending = buildBarChart("chart-composition-pending", [
+  { label: "Без согласия (могут присоединиться)", backgroundColor: "#4f8cff" },
+]);
 
 loadAll();
 </script>
