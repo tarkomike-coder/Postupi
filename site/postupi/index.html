@@ -64,8 +64,9 @@
 
   .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
   .stat .k { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .02em; }
-  .stat .v { font-size: 21px; font-weight: 700; margin-top: 4px; color: #fff; }
+  .stat .v { font-size: 14px; font-weight: 650; margin-top: 2px; color: #fff; }
   .stat .g { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .stat .g .gval { font-size: 18px; font-weight: 700; color: #fff; }
 
   .card .flag { display: inline-block; margin-top: 14px; font-size: 11.5px; padding: 3px 8px; border-radius: 999px; }
   .flag.admitted { background: rgba(46,204,113,.15); color: var(--green); }
@@ -211,7 +212,7 @@ function renderCards(status) {
       <div class="stat">
         <div class="k">${label}</div>
         <div class="v">${value}</div>
-        ${gapValue ? `<div class="g">разрыв ${gapValue}</div>` : ""}
+        ${gapValue ? `<div class="g">разрыв <span class="gval">${gapValue}</span></div>` : ""}
       </div>
     `;
 
