@@ -1,58 +1,17 @@
-"""Импорт данных Бауманки из CSV, выгруженных с Госуслуг (Вуз-навигатор,
-"Списки подавших документы" -> направление -> "Скачать в виде таблицы").
-
-Сбор самих CSV - ручной шаг (Claude делает это по просьбе пользователя,
-используя уже залогиненную в Госуслуги сессию в браузере - см. обсуждение:
-сервер никогда не хранит и не использует чужую госуслуговскую сессию).
-Здесь - только разбор уже готового файла и запись в БД по ТОЙ ЖЕ схеме,
-что и МАИ (CompetitorSnapshot с category=SIM_CATEGORY), чтобы переиспользовать
-существующую симуляцию (services/monte_carlo.py) без каких-либо изменений.
-"""
-import csv
-import io
+"""Полный цикл прогона для Бауманки: тянем данные напрямую из публичного
+JSON API Госуслуг (services/bauman_scraper.py, без CSV и без логина) ->
+запись в БД -> детект изменений у отслеживаемых абитуриентов -> симуляция.
+Архитектурно повторяет services/sync.py (МАИ), чтобы переиспользовать
+Direction/CompetitorSnapshot/SimulationResult и compute_simulation as-is."""
 from datetime import datetime
 
-from config import SIM_CATEGORY, DEFAULT_TARGET_CODE, DEFAULT_TARGET_NAME
+from config import DEFAULT_TARGET_CODE, DEFAULT_TARGET_NAME, SIM_CATEGORY
 from database.db import SessionLocal
-from models import Direction, SeatPlan, CompetitorSnapshot, MonitorRun, TrackedApplicant
+from models import Direction, SeatPlan, CompetitorSnapshot, MonitorRun, TrackedApplicant, ApplicantChangeEvent
+from services.bauman_scraper import scrape_scope, ScrapeError
 from services.monte_carlo import compute_simulation
 
 UNIVERSITY = "Бауманка"
-
-
-def _to_int(value):
-    value = (value or "").strip()
-    if not value or value in ("—", "-"):
-        return None
-    try:
-        return int(value)
-    except ValueError:
-        return None
-
-
-def parse_csv_text(csv_text: str) -> list:
-    """CSV с Госуслуг: разделитель ';', UTF-8 (с BOM), поля в кавычках.
-    Столбцы: Порядковый номер;ID участника;Приоритет конкурса;
-    Подано согласие;Сумма баллов;Баллы за ВИ;Баллы за ИД;Статус;
-    Дата выбора конкурсной группы по Москве."""
-    reader = csv.DictReader(io.StringIO(csv_text), delimiter=";")
-    rows = []
-    for r in reader:
-        priority = _to_int(r.get("Приоритет конкурса"))
-        score = _to_int(r.get("Сумма баллов"))
-        code = (r.get("ID участника") or "").strip()
-        consent_raw = (r.get("Подано согласие") or "").strip()
-        consent = bool(consent_raw) and consent_raw not in ("—", "-")
-        if not code or priority is None or score is None:
-            continue  # тот же принцип, что у МАИ - без балла не участник, а "рано считать"
-        rows.append({
-            "position": _to_int(r.get("Порядковый номер")),
-            "unique_code": code,
-            "priority": priority,
-            "consent": consent,
-            "total_score": score,
-        })
-    return rows
 
 
 def _ensure_default_tracked_applicant(db):
@@ -61,7 +20,7 @@ def _ensure_default_tracked_applicant(db):
         db.commit()
 
 
-def _import_direction(db, run: MonitorRun, name: str, fgos_code: str, seats: int, csv_text: str) -> int:
+def _get_or_create_direction(db, name: str, fgos_code) -> Direction:
     direction = db.query(Direction).filter(
         Direction.name == name, Direction.university == UNIVERSITY,
     ).first()
@@ -71,27 +30,28 @@ def _import_direction(db, run: MonitorRun, name: str, fgos_code: str, seats: int
         db.flush()
     elif fgos_code and direction.fgos_code != fgos_code:
         direction.fgos_code = fgos_code
+    return direction
 
-    latest_seats = (
+
+def _sync_seats(db, run: MonitorRun, direction: Direction, seats):
+    if seats is None:
+        return
+    latest = (
         db.query(SeatPlan)
         .filter(SeatPlan.direction_id == direction.id)
         .order_by(SeatPlan.valid_from.desc())
         .first()
     )
-    if latest_seats is None or latest_seats.seats_budget != seats:
+    if latest is None or latest.seats_budget != seats:
         db.add(SeatPlan(direction_id=direction.id, seats_budget=seats, source_run_id=run.id))
 
-    rows = parse_csv_text(csv_text)
+
+def _save_snapshots(db, run: MonitorRun, direction: Direction, rows) -> int:
     snapshot_rows = [
         CompetitorSnapshot(
-            run_id=run.id,
-            direction_id=direction.id,
-            unique_code=row["unique_code"],
-            category=SIM_CATEGORY,
-            position=row["position"],
-            total_score=row["total_score"],
-            priority=row["priority"],
-            consent=row["consent"],
+            run_id=run.id, direction_id=direction.id, unique_code=row.unique_code,
+            category=SIM_CATEGORY, position=row.position, total_score=row.total_score,
+            priority=row.priority, consent=row.consent,
         )
         for row in rows
     ]
@@ -99,11 +59,69 @@ def _import_direction(db, run: MonitorRun, name: str, fgos_code: str, seats: int
     return len(snapshot_rows)
 
 
-def run_bauman_import(directions_data: list) -> MonitorRun:
-    """directions_data: [{"name": str, "fgos_code": str|None, "seats": int,
-    "csv_text": str}, ...] - один элемент на направление."""
+def _log_change_events(db, run: MonitorRun):
+    applicants = db.query(TrackedApplicant).filter(TrackedApplicant.active.is_(True)).all()
+    for applicant in applicants:
+        previous_run_id = (
+            db.query(CompetitorSnapshot.run_id)
+            .join(Direction, Direction.id == CompetitorSnapshot.direction_id)
+            .filter(
+                CompetitorSnapshot.run_id != run.id,
+                CompetitorSnapshot.unique_code == applicant.unique_code,
+                CompetitorSnapshot.category == SIM_CATEGORY,
+                Direction.university == UNIVERSITY,
+            )
+            .order_by(CompetitorSnapshot.run_id.desc())
+            .limit(1)
+            .scalar()
+        )
+        current_rows = (
+            db.query(CompetitorSnapshot)
+            .join(Direction, Direction.id == CompetitorSnapshot.direction_id)
+            .filter(
+                CompetitorSnapshot.run_id == run.id,
+                CompetitorSnapshot.unique_code == applicant.unique_code,
+                CompetitorSnapshot.category == SIM_CATEGORY,
+                Direction.university == UNIVERSITY,
+            ).all()
+        )
+        current = {r.direction_id: r.priority for r in current_rows}
+
+        previous = {}
+        if previous_run_id:
+            previous_rows = (
+                db.query(CompetitorSnapshot)
+                .filter(
+                    CompetitorSnapshot.run_id == previous_run_id,
+                    CompetitorSnapshot.unique_code == applicant.unique_code,
+                    CompetitorSnapshot.category == SIM_CATEGORY,
+                ).all()
+            )
+            previous = {r.direction_id: r.priority for r in previous_rows}
+
+        for direction_id, priority in current.items():
+            if direction_id not in previous:
+                db.add(ApplicantChangeEvent(
+                    tracked_applicant_id=applicant.id, run_id=run.id, direction_id=direction_id,
+                    event_type="direction_added", old_value=None, new_value=str(priority),
+                ))
+            elif previous[direction_id] != priority:
+                db.add(ApplicantChangeEvent(
+                    tracked_applicant_id=applicant.id, run_id=run.id, direction_id=direction_id,
+                    event_type="priority_changed",
+                    old_value=str(previous[direction_id]), new_value=str(priority),
+                ))
+        for direction_id, priority in previous.items():
+            if direction_id not in current:
+                db.add(ApplicantChangeEvent(
+                    tracked_applicant_id=applicant.id, run_id=run.id, direction_id=direction_id,
+                    event_type="direction_removed", old_value=str(priority), new_value=None,
+                ))
+
+
+def run_bauman_sync(trigger: str = "schedule") -> MonitorRun:
     db = SessionLocal()
-    run = MonitorRun(status="running", trigger="manual_import", university=UNIVERSITY)
+    run = MonitorRun(status="running", trigger=trigger, university=UNIVERSITY)
     db.add(run)
     db.commit()
     db.refresh(run)
@@ -111,14 +129,25 @@ def run_bauman_import(directions_data: list) -> MonitorRun:
     try:
         _ensure_default_tracked_applicant(db)
 
-        for item in directions_data:
-            _import_direction(db, run, item["name"], item.get("fgos_code"), item["seats"], item["csv_text"])
+        directions = scrape_scope()
+        run.directions_scraped = len(directions)
+
+        for d in directions:
+            direction = _get_or_create_direction(db, d.name, d.fgos_code)
+            db.flush()
+            _sync_seats(db, run, direction, d.seats)
+            _save_snapshots(db, run, direction, d.rows)
         db.commit()
-        run.directions_scraped = len(directions_data)
+
+        _log_change_events(db, run)
+        db.commit()
 
         compute_simulation(db, run.id)
 
         run.status = "ok"
+    except ScrapeError as e:
+        run.status = "error"
+        run.error_message = str(e)[:2000]
     except Exception as e:
         run.status = "error"
         run.error_message = f"{type(e).__name__}: {e}"[:2000]

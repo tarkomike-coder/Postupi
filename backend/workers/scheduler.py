@@ -4,13 +4,13 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from config import SCHEDULE_TIMES_MSK
-from workers.run_monitor import run
+from workers.run_monitor import run_all
 
 _scheduler = None
 
 
 def _run_scheduled():
-    run(trigger="schedule")
+    run_all(trigger="schedule")
 
 
 def start_scheduler():

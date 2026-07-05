@@ -7,6 +7,7 @@ from models import (
     TrackedApplicant, SimulationResult, ApplicantChangeEvent,
 )
 from services.sync import run_full_sync
+from services.bauman_import import run_bauman_sync
 from config import SIM_CATEGORY
 
 router = APIRouter(prefix="/postupi", tags=["postupi"])
@@ -199,8 +200,8 @@ def events(university: str = "МАИ", db: Session = Depends(get_db)):
 
 
 @router.post("/refresh")
-def refresh():
-    run = run_full_sync(trigger="manual")
+def refresh(university: str = "МАИ"):
+    run = run_bauman_sync(trigger="manual") if university == "Бауманка" else run_full_sync(trigger="manual")
     return {
         "id": run.id,
         "status": run.status,

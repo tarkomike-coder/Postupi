@@ -26,6 +26,26 @@ SEAT_PLAN_SECTION_MARKER = "базового высшего образовани
 DEFAULT_TARGET_CODE = "1422086"
 DEFAULT_TARGET_NAME = "Варя"
 
+# --- Бауманка (МГТУ им. Баумана), через публичный (без логина) JSON API
+# Госуслуг "Вуз-навигатор". Механика разобрана вручную через браузер, см.
+# services/bauman_scraper.py. groupId нельзя перечислить одним запросом -
+# единственный найденный способ узнать его: открыть в браузере
+# https://www.gosuslugi.ru/vuznavigator/specialties/{oksoCode}/{levelId}/26
+# (oksoCode формата "2.09.03.01", levelId=6 - "Базовое высшее образование"
+# у Баумана в 2026 году) и посмотреть, какие groupId она подставляет в
+# запрос .../competition/statuses/ratings. Поэтому список ниже - руками
+# найденные и проверенные (по applicationId Вари) id; если появится новое
+# направление, добавить его сюда тем же способом.
+BAUMAN_ORG_ID = 26
+BAUMAN_API_BASE = "https://www.gosuslugi.ru/api/university-applicant-list/v1/public/2026"
+BAUMAN_ITEMS_URL = "https://www.gosuslugi.ru/api/vuz-navigator/public/v1/2026/educational-programs/items"
+BAUMAN_GROUP_IDS = [128864, 128989]
+BAUMAN_HTTP_HEADERS = {
+    "User-Agent": HTTP_HEADERS["User-Agent"],
+    "Referer": "https://www.gosuslugi.ru/vuznavigator/universities/26",
+    "Accept": "application/json",
+}
+
 _DEFAULT_SQLITE_PATH = os.path.join(os.path.dirname(__file__), "postupi.db")
 DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{_DEFAULT_SQLITE_PATH}")
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Поступление — мониторинг МАИ</title>
+<title>Поступление — мониторинг</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 <style>
@@ -19,6 +19,7 @@
     --red: #ff5a5a;
     --amber: #ffb44d;
     --shadow: 0 6px 20px rgba(0, 0, 0, .35);
+    --progress-h: 46px;
   }
   * { box-sizing: border-box; }
   body {
@@ -29,17 +30,10 @@
     line-height: 1.5;
     min-height: 100vh;
   }
-  .wrap { max-width: 1280px; margin: 0 auto; padding: 24px 18px 48px; }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: calc(var(--progress-h) + 24px) 18px 48px; }
   header.top { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
   h1 { font-size: 22px; margin: 0; font-weight: 650; }
   .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
-
-  button.refresh {
-    background: var(--accent); color: #fff; border: none; border-radius: 10px;
-    padding: 10px 18px; font-size: 14px; font-weight: 600; cursor: pointer;
-  }
-  button.refresh:disabled { opacity: .6; cursor: default; }
-  button.refresh:hover:not(:disabled) { filter: brightness(1.1); }
 
   section { margin-bottom: 28px; }
   h2 { font-size: 15px; margin: 0 0 12px; font-weight: 600; color: #cdd9f0; }
@@ -62,11 +56,24 @@
   .card .final-line { font-size: 12.5px; color: var(--muted); margin: 10px 0 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
   .card .final-line b { color: var(--text); }
 
-  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
-  .stat .k { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .02em; }
-  .stat .v { font-size: 14px; font-weight: 650; margin-top: 2px; color: #fff; }
-  .stat .g { font-size: 11px; color: var(--muted); margin-top: 1px; }
-  .stat .g .gval { font-size: 18px; font-weight: 700; color: #fff; }
+  .position-row { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin: 10px 0 14px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+  .position-row .k { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .02em; }
+  .position-row .real .v { font-size: 22px; font-weight: 750; color: #fff; margin-top: 2px; }
+  .position-row .real .v .of { font-size: 14px; font-weight: 500; color: var(--muted); }
+  .position-row .real .hint { font-size: 11px; color: var(--muted); margin-top: 3px; max-width: 220px; }
+  .position-row .raw { text-align: right; font-size: 11px; color: var(--muted); max-width: 140px; }
+  .position-row .raw b { display: block; color: var(--text); font-size: 13px; font-weight: 650; margin-top: 2px; }
+
+  .scores { display: flex; flex-direction: column; gap: 7px; }
+  .scores .row { display: flex; align-items: baseline; justify-content: space-between; font-size: 12.5px; gap: 10px; }
+  .scores .row .label { color: var(--muted); white-space: nowrap; }
+  .scores .row .val { display: flex; align-items: baseline; gap: 7px; white-space: nowrap; }
+  .scores .row .val b { font-size: 14px; font-weight: 650; color: #fff; }
+  .scores .row.mine { padding-bottom: 7px; margin-bottom: 2px; border-bottom: 1px dashed var(--border); }
+  .scores .row.mine .val b { font-size: 17px; }
+  .delta { font-size: 11.5px; font-weight: 650; }
+  .delta.pos { color: var(--green); }
+  .delta.neg { color: var(--red); }
 
   .card .flag { display: inline-block; margin-top: 14px; font-size: 11.5px; padding: 3px 8px; border-radius: 999px; }
   .flag.admitted { background: rgba(46,204,113,.15); color: var(--green); }
@@ -77,14 +84,73 @@
   .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   @media (max-width: 800px) { .charts-grid { grid-template-columns: 1fr; } }
   .chart-box { height: 280px; }
+  .chart-hint { font-size: 11px; color: var(--muted); margin-top: 6px; }
 
-  .tabs { display: flex; gap: 8px; margin-bottom: 14px; }
-  .tabs .tab { padding: 9px 18px; border-radius: 10px; font-size: 13px; color: var(--muted); border: 1px solid var(--border); cursor: pointer; }
-  .tabs .tab.active { color: #fff; background: var(--accent); font-weight: 650; border-color: transparent; }
-  .manual-badge { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
-  .manual-badge .pill { font-size: 11.5px; padding: 4px 10px; border-radius: 999px; background: rgba(255,180,77,.15); color: var(--amber); }
-  .manual-badge .note { font-size: 12.5px; color: var(--muted); }
-  .manual-badge .hint { font-size: 12px; color: var(--accent); margin-left: auto; }
+  /* Сводка сверху - вертикальный список (тот же порядок, что и секции
+     ниже - явный намёк, что дальше на странице продолжение). Каждая
+     строка - одновременно статус и ссылка для перехода к разделу вуза. */
+  .summary { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+  .summary-item {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 14px; font-size: 12.5px; display: flex; align-items: flex-start; gap: 10px;
+    flex-wrap: wrap;
+    text-decoration: none; color: inherit; cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .summary-item:hover { border-color: var(--uni-color, var(--accent)); background: var(--bg-card-2); }
+  .summary-item .uni { font-weight: 700; color: #fff; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+  .summary-item .uni .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--uni-color, var(--accent)); flex-shrink: 0; }
+  .summary-item .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .summary-item .jump { margin-left: auto; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+  .chip { font-size: 11px; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+  .chip.green { background: rgba(46,204,113,.15); color: var(--green); }
+  .chip.amber { background: rgba(255,180,77,.15); color: var(--amber); }
+  .chip.red { background: rgba(255,90,90,.12); color: var(--red); }
+  .chip.muted { background: rgba(142,163,199,.12); color: var(--muted); }
+
+  /* Полноширинная полоса прогресса - зафиксирована сверху экрана, во всю
+     ширину (не ограничена шириной .wrap). Слева направо - зоны вузов
+     (каждая своим цветовым градиентом, пропорционально реальной высоте её
+     контента), поверх - маркер текущей позиции скролла по всей странице. */
+  .uni-progress {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+    height: var(--progress-h);
+  }
+  .uni-progress-track { position: relative; width: 100%; height: 100%; box-shadow: 0 2px 14px rgba(0,0,0,.4); }
+  .uni-progress-zone {
+    position: absolute; top: 0; bottom: 0;
+    display: flex; align-items: center;
+    text-decoration: none; white-space: nowrap; overflow: hidden;
+  }
+  .uni-progress-zone .label {
+    padding: 0 14px; font-size: 13px; font-weight: 750; color: rgba(255,255,255,.92);
+    text-shadow: 0 1px 3px rgba(0,0,0,.35);
+  }
+  .uni-progress-marker {
+    position: absolute; top: 0; height: 100%; width: 4px; z-index: 2;
+    background: #fff; transform: translateX(-50%);
+    box-shadow: 0 0 12px 2px rgba(255,255,255,.85);
+    pointer-events: none;
+  }
+  .uni-progress-marker::after {
+    content: ""; position: absolute; left: 50%; bottom: -7px;
+    width: 15px; height: 15px; border-radius: 50%; background: #fff;
+    transform: translateX(-50%); box-shadow: 0 0 14px 4px rgba(255,255,255,.9), 0 0 0 3px rgba(10,18,38,.9);
+  }
+
+  /* Территория вуза: у каждого вуза - свой цвет, липкий баннер прямо под
+     полоской прогресса показывает, где именно ты находишься, пока листаешь. */
+  .uni-section { margin-bottom: 44px; scroll-margin-top: calc(var(--progress-h) + 16px); }
+  .uni-banner {
+    position: sticky; top: var(--progress-h); z-index: 5;
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    padding: 14px 18px; margin-bottom: 20px; border-radius: 12px;
+    background: var(--uni-bg, var(--bg-card)); border: 1px solid var(--uni-color, var(--border));
+    border-left-width: 5px;
+    backdrop-filter: blur(6px);
+  }
+  .uni-banner .uni-name { font-size: 19px; font-weight: 800; color: #fff; letter-spacing: .01em; }
+  .uni-banner .uni-note { font-size: 12px; color: var(--muted); }
 
   ul.events { list-style: none; margin: 0; padding: 0; }
   ul.events li { padding: 10px 4px; border-bottom: 1px solid var(--border); font-size: 13.5px; }
@@ -94,6 +160,7 @@
 </style>
 </head>
 <body>
+<nav class="uni-progress" id="uni-progress"><div class="uni-progress-track" id="uni-progress-track"></div></nav>
 <div class="wrap">
 
   <header class="top">
@@ -101,53 +168,11 @@
       <h1 id="page-title">Поступление — мониторинг</h1>
       <div class="sub" id="page-sub">загрузка…</div>
     </div>
-    <button class="refresh" id="refresh-btn">Обновить сейчас</button>
   </header>
 
-  <div class="tabs" id="tabs"></div>
-  <div class="manual-badge" id="manual-badge" style="display:none"></div>
+  <div class="summary" id="summary"></div>
 
-  <section>
-    <h2>Направления сейчас</h2>
-    <div class="cards" id="cards">
-      <div class="empty">Загрузка…</div>
-    </div>
-  </section>
-
-  <section>
-    <h2>Состав конкуренции</h2>
-    <div class="panel">
-      <div class="charts-grid">
-        <div>
-          <div class="sub" style="margin-bottom:6px">Кто реально конкурирует сейчас</div>
-          <div class="chart-box"><canvas id="chart-composition-real"></canvas></div>
-        </div>
-        <div>
-          <div class="sub" style="margin-bottom:6px">Без согласия — могут присоединиться позже</div>
-          <div class="chart-box"><canvas id="chart-composition-pending"></canvas></div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section>
-    <h2>Динамика</h2>
-    <div class="panel">
-      <div class="charts-grid">
-        <div><div class="sub" style="margin-bottom:6px">Вероятность зачисления, % (независимо от приоритетов)</div><div class="chart-box"><canvas id="chart-prob"></canvas></div></div>
-        <div><div class="sub" style="margin-bottom:6px">Реальное место</div><div class="chart-box"><canvas id="chart-position"></canvas></div></div>
-        <div><div class="sub" style="margin-bottom:6px">Прогноз проходного балла</div><div class="chart-box"><canvas id="chart-cutoff"></canvas></div></div>
-        <div><div class="sub" style="margin-bottom:6px">Разрыв (мой балл − прогноз проходного)</div><div class="chart-box"><canvas id="chart-gap"></canvas></div></div>
-      </div>
-    </div>
-  </section>
-
-  <section>
-    <h2>История изменений заявления</h2>
-    <div class="panel">
-      <ul class="events" id="events"><li class="empty">Загрузка…</li></ul>
-    </div>
-  </section>
+  <div id="universities"></div>
 
 </div>
 
@@ -158,6 +183,16 @@ const API_BASE = (location.hostname === "postupi.tarko.su")
 
 const PALETTE = ["#4f8cff", "#2ecc71", "#ffb44d", "#ff5a5a", "#b98cff", "#4fd0ff", "#ff8cc8"];
 const colorFor = (i) => PALETTE[i % PALETTE.length];
+
+// Цвет "территории" каждого вуза - используется в баннере-разделителе и в
+// сводке сверху, чтобы визуально не путать, где чей раздел.
+const UNI_COLORS = ["#4f8cff", "#a855f7", "#17a2b8", "#e08e0b"];
+const uniColor = (i) => UNI_COLORS[i % UNI_COLORS.length];
+const uniColorBg = (i) => {
+  const hex = uniColor(i).replace("#", "");
+  const r = parseInt(hex.slice(0, 2), 16), g = parseInt(hex.slice(2, 4), 16), b = parseInt(hex.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, .12)`;
+};
 
 function probClass(p) {
   if (p === null || p === undefined) return "";
@@ -190,45 +225,221 @@ function shortName(s, n = 22) {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
-async function fetchJSON(path) {
-  const res = await fetch(`${API_BASE}${path}`);
+async function fetchJSON(path, timeoutMs = 12000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let res;
+  try {
+    res = await fetch(`${API_BASE}${path}`, { signal: controller.signal });
+  } catch (err) {
+    if (err.name === "AbortError") throw new Error(`${path}: превышено время ожидания`);
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
   return res.json();
 }
 
-let currentUniversity = "МАИ";
+// Больше нет вкладок-переключателей ("непонятно, что это кнопки") - вместо
+// этого страница показывает оба вуза целиком, один за другим, каждый в
+// своей цветной "территории" со своим баннером сверху. charts[i] - набор
+// графиков конкретного вуза по индексу в списке universities.
+let charts = [];
 
-function renderTabs(universities) {
-  const el = document.getElementById("tabs");
-  const all = ["МАИ", ...universities.filter(u => u !== "МАИ")];
-  if (all.length < 2) { el.style.display = "none"; return; }
-  el.style.display = "flex";
-  el.innerHTML = all.map(u => `<div class="tab${u === currentUniversity ? " active" : ""}" data-u="${u}">${u}</div>`).join("");
-  el.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
-    currentUniversity = t.dataset.u;
-    loadAll();
+function buildLineChart(canvas) {
+  const ctx = canvas.getContext("2d");
+  return new Chart(ctx, {
+    type: "line",
+    data: { datasets: [] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: "nearest", intersect: true },
+      scales: {
+        x: { type: "time", time: { unit: "day" }, ticks: { color: "#8ea3c7" }, grid: { color: "#1e3260" } },
+        y: { ticks: { color: "#8ea3c7" }, grid: { color: "#1e3260" } },
+      },
+      plugins: {
+        legend: { labels: { color: "#e6ecf7", boxWidth: 12, font: { size: 11 } } },
+        tooltip: { titleFont: { size: 12 }, bodyFont: { size: 12 }, padding: 8 },
+      },
+    },
+  });
+}
+
+function buildBarChart(canvas, datasetDefs) {
+  const ctx = canvas.getContext("2d");
+  return new Chart(ctx, {
+    type: "bar",
+    data: { labels: [], datasets: datasetDefs.map(d => ({ ...d, data: [] })) },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: "nearest", intersect: true },
+      scales: {
+        x: { ticks: { color: "#8ea3c7" }, grid: { display: false } },
+        y: { ticks: { color: "#8ea3c7" }, grid: { color: "#1e3260" } },
+      },
+      plugins: {
+        legend: { labels: { color: "#e6ecf7", boxWidth: 12, font: { size: 11 } } },
+        tooltip: { titleFont: { size: 12 }, bodyFont: { size: 12 }, padding: 8 },
+      },
+    },
+  });
+}
+
+function renderUniversitySections(universities) {
+  const el = document.getElementById("universities");
+  el.innerHTML = universities.map((u, i) => `
+    <div class="uni-section" id="uni-section-${i}" style="--uni-color: ${uniColor(i)}; --uni-bg: ${uniColorBg(i)}">
+      <div class="uni-banner">
+        <span class="uni-name">${u}</span>
+        <span class="uni-note">направления, конкуренты и динамика по этому вузу — ниже</span>
+      </div>
+
+      <section>
+        <h2>Направления сейчас</h2>
+        <div class="cards" id="cards-${i}"><div class="empty">Загрузка…</div></div>
+      </section>
+
+      <section>
+        <h2>Состав конкуренции</h2>
+        <div class="panel">
+          <div class="charts-grid">
+            <div>
+              <div class="sub" style="margin-bottom:6px">Кто реально конкурирует сейчас</div>
+              <div class="chart-box"><canvas id="chart-composition-real-${i}"></canvas></div>
+            </div>
+            <div>
+              <div class="sub" style="margin-bottom:6px">Без согласия — могут присоединиться позже</div>
+              <div class="chart-box"><canvas id="chart-composition-pending-${i}"></canvas></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Динамика</h2>
+        <div class="panel">
+          <div class="charts-grid">
+            <div><div class="sub" style="margin-bottom:6px">Вероятность зачисления, % (независимо от приоритетов)</div><div class="chart-box"><canvas id="chart-prob-${i}"></canvas></div></div>
+            <div><div class="sub" style="margin-bottom:6px">Реальное место</div><div class="chart-box"><canvas id="chart-position-${i}"></canvas></div></div>
+            <div>
+              <div class="sub" style="margin-bottom:6px">Прогноз проходного балла</div>
+              <div class="chart-box"><canvas id="chart-cutoff-${i}"></canvas></div>
+              <div class="chart-hint">Линия короче остальных или обрывается — значит, для этого направления пока мало кто подал согласие, чтобы надёжно оценить проходной балл.</div>
+            </div>
+            <div><div class="sub" style="margin-bottom:6px">Разрыв (мой балл − прогноз проходного)</div><div class="chart-box"><canvas id="chart-gap-${i}"></canvas></div></div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>История изменений заявления</h2>
+        <div class="panel">
+          <ul class="events" id="events-${i}"><li class="empty">Загрузка…</li></ul>
+        </div>
+      </section>
+    </div>
+  `).join("");
+
+  charts = universities.map((_, i) => ({
+    prob: buildLineChart(document.getElementById(`chart-prob-${i}`)),
+    position: buildLineChart(document.getElementById(`chart-position-${i}`)),
+    cutoff: buildLineChart(document.getElementById(`chart-cutoff-${i}`)),
+    gap: buildLineChart(document.getElementById(`chart-gap-${i}`)),
+    compositionReal: buildBarChart(document.getElementById(`chart-composition-real-${i}`), [
+      { label: "Каскад ведёт сюда (реальные конкуренты)", backgroundColor: "#ff5a5a" },
+      { label: "Согласие есть, но каскад уводит выше (не мешают)", backgroundColor: "#ffb44d" },
+    ]),
+    compositionPending: buildBarChart(document.getElementById(`chart-composition-pending-${i}`), [
+      { label: "Без согласия (могут присоединиться)", backgroundColor: "#4f8cff" },
+    ]),
   }));
+
+  // Реальная разметка полосы (пропорции по высоте секций) строится позже,
+  // после того как в секции подгрузится настоящий контент - см. loadAll().
 }
 
-function renderManualBadge(statusData) {
-  const el = document.getElementById("manual-badge");
-  const btn = document.getElementById("refresh-btn");
-  if (currentUniversity === "МАИ") {
-    el.style.display = "none";
-    btn.style.display = "";
-    return;
+// Двухцветные (тёмный -> светлый) градиенты по каждому вузу для полосы
+// прогресса - тот же порядок цветов, что и UNI_COLORS.
+const UNI_GRADIENTS = [
+  ["#2f5fd9", "#6ea8ff"],
+  ["#7c3aed", "#c99bfb"],
+  ["#0e7c8f", "#4fd0ff"],
+  ["#b06a06", "#ffb44d"],
+];
+const uniGradient = (i) => UNI_GRADIENTS[i % UNI_GRADIENTS.length];
+
+let progressRange = null; // {startY, endY, zones: [{idx, pctStart, pctEnd}, ...]}
+
+function layoutProgressBar(universities) {
+  const track = document.getElementById("uni-progress-track");
+  const sections = universities.map((_, i) => document.getElementById(`uni-section-${i}`));
+  if (!sections.length || sections.some(s => !s)) return;
+
+  const startY = sections[0].offsetTop;
+  const endY = sections[sections.length - 1].offsetTop + sections[sections.length - 1].offsetHeight;
+  const total = Math.max(endY - startY, 1);
+
+  const gradientStops = [];
+  const zones = [];
+  let cursor = 0;
+  sections.forEach((section, i) => {
+    const pctStart = (cursor / total) * 100;
+    cursor += section.offsetHeight;
+    const pctEnd = (cursor / total) * 100;
+    const [c1, c2] = uniGradient(i);
+    gradientStops.push(`${c1} ${pctStart}%`, `${c2} ${pctEnd}%`);
+    zones.push({ idx: i, pctStart, pctEnd });
+  });
+
+  track.style.background = `linear-gradient(90deg, ${gradientStops.join(", ")})`;
+  track.querySelectorAll(".uni-progress-zone").forEach(z => z.remove());
+  zones.forEach(({ idx, pctStart, pctEnd }) => {
+    const zone = document.createElement("a");
+    zone.className = "uni-progress-zone";
+    zone.href = `#uni-section-${idx}`;
+    zone.style.left = `${pctStart}%`;
+    zone.style.width = `${pctEnd - pctStart}%`;
+    zone.innerHTML = `<span class="label">${universities[idx]}</span>`;
+    track.appendChild(zone);
+  });
+
+  let marker = document.getElementById("uni-progress-marker");
+  if (!marker) {
+    marker = document.createElement("div");
+    marker.id = "uni-progress-marker";
+    marker.className = "uni-progress-marker";
+    track.appendChild(marker);
   }
-  btn.style.display = "none";
-  el.style.display = "flex";
-  el.innerHTML = `
-    <span class="pill">обновлено вручную</span>
-    <span class="note">${fmtDate(statusData.run.finished_at)} · источник: Госуслуги (Вуз-навигатор)</span>
-    <span class="hint">напишите "обнови ${currentUniversity}" в чат, чтобы обновить</span>
-  `;
+
+  progressRange = { startY, endY: startY + total };
+  updateProgressMarker();
 }
 
-function renderCards(status) {
-  const el = document.getElementById("cards");
+function updateProgressMarker() {
+  if (!progressRange) return;
+  const marker = document.getElementById("uni-progress-marker");
+  if (!marker) return;
+  const { startY, endY } = progressRange;
+  // Маркер отражает то, что видно ПОСЕРЕДИНЕ экрана, а не только верхний
+  // край - честнее показывает, что ты сейчас реально читаешь.
+  const viewY = window.scrollY + window.innerHeight / 2;
+  let frac = (viewY - startY) / Math.max(endY - startY, 1);
+  frac = Math.max(0, Math.min(1, frac));
+  marker.style.left = `${frac * 100}%`;
+}
+
+window.addEventListener("scroll", () => requestAnimationFrame(updateProgressMarker), { passive: true });
+window.addEventListener("resize", () => {
+  clearTimeout(window.__progressResizeTimer);
+  window.__progressResizeTimer = setTimeout(() => layoutProgressBar(lastUniversities), 200);
+});
+
+let lastUniversities = [];
+
+function renderCards(status, idx) {
+  const el = document.getElementById(`cards-${idx}`);
   const dirs = status.directions || [];
   if (!dirs.length) {
     el.innerHTML = `<div class="empty">Нет данных — направления не найдены в последнем прогоне.</div>`;
@@ -248,11 +459,16 @@ function renderCards(status) {
     }
     if (d.deterministic_admitted) { flagText += " · текущий прогноз зачисления"; }
 
-    const stat = (label, value, gapValue) => `
-      <div class="stat">
-        <div class="k">${label}</div>
-        <div class="v">${value}</div>
-        ${gapValue ? `<div class="g">разрыв <span class="gval">${gapValue}</span></div>` : ""}
+    const deltaHtml = (gapValue) => {
+      const g = fmtGap(gapValue);
+      if (!g) return "";
+      const cls = gapValue > 0 ? "pos" : (gapValue < 0 ? "neg" : "");
+      return `<span class="delta ${cls}">${g}</span>`;
+    };
+    const scoreRow = (label, value, gapValue, mine = false) => `
+      <div class="row${mine ? " mine" : ""}">
+        <span class="label">${label}</span>
+        <span class="val"><b>${value}</b>${gapValue !== undefined ? deltaHtml(gapValue) : ""}</span>
       </div>
     `;
 
@@ -263,81 +479,48 @@ function renderCards(status) {
       <div class="prob ${probClass(headline)}">${headlineText}</div>
       <div class="prob-label">вероятность зачисления сюда (независимо от приоритетов)</div>
       <div class="final-line">Итоговый шанс попасть именно сюда (с учётом каскада всех приоритетов): <b>${fmt(d.probability_pct !== null ? Math.round(d.probability_pct) : null, "%")}</b></div>
-      <div class="stats">
-        ${stat("Место (все заявки)", `${fmt(d.position)} / ${fmt(d.seats_budget)}`)}
-        ${stat("Реальное место", `${fmt(d.real_competitor_position)} / ${fmt(d.real_competitor_count)}`)}
-        ${stat("Мой балл", fmt(d.total_score))}
-        ${stat("Балл 2025", fmt(d.cutoff_2025), fmtGap(d.cutoff_2025 != null ? d.total_score - d.cutoff_2025 : null))}
-        ${stat("Прогноз проходного", fmt1(d.predicted_cutoff_score), fmtGap(d.predicted_gap))}
-        ${stat("Средний балл", fmt1(d.avg_real_competitor_score), fmtGap(d.gap_to_avg))}
-        ${stat("Мин. балл", fmt(d.min_real_competitor_score), fmtGap(d.gap_to_min))}
+      <div class="position-row">
+        <div class="real">
+          <div class="k">Реальное место</div>
+          <div class="v">${fmt(d.real_competitor_position)} <span class="of">из ${fmt(d.real_competitor_count)}</span></div>
+          <div class="hint">конкурентов, которых каскад реально ведёт сюда · бюджетных мест: ${fmt(d.seats_budget)}</div>
+        </div>
+        <div class="raw">
+          Позиция в общем списке<br>(все заявки, включая без согласия)
+          <b>${fmt(d.position)}-я</b>
+        </div>
+      </div>
+      <div class="scores">
+        ${scoreRow("Мой балл", fmt(d.total_score))}
+        ${d.cutoff_2025 != null ? scoreRow("Проходной балл 2025", fmt(d.cutoff_2025), d.total_score - d.cutoff_2025) : ""}
+        ${scoreRow("Прогноз проходного", fmt1(d.predicted_cutoff_score), d.predicted_gap)}
+        ${scoreRow("Средний балл конкурентов", fmt1(d.avg_real_competitor_score), d.gap_to_avg)}
+        ${scoreRow("Мин. балл конкурентов", fmt(d.min_real_competitor_score), d.gap_to_min)}
       </div>
       <span class="flag ${flagClass}">${flagText}</span>
     </div>
   `;
   }).join("");
-
-  document.getElementById("page-sub").textContent = `обновлено ${fmtDate(status.run.finished_at)}`;
 }
 
-let charts = {};
-
-function buildLineChart(canvasId) {
-  const ctx = document.getElementById(canvasId).getContext("2d");
-  return new Chart(ctx, {
-    type: "line",
-    data: { datasets: [] },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: "nearest", intersect: true },
-      scales: {
-        x: { type: "time", time: { unit: "day" }, ticks: { color: "#8ea3c7" }, grid: { color: "#1e3260" } },
-        y: { ticks: { color: "#8ea3c7" }, grid: { color: "#1e3260" } },
-      },
-      plugins: {
-        legend: { labels: { color: "#e6ecf7", boxWidth: 12, font: { size: 11 } } },
-        tooltip: { titleFont: { size: 12 }, bodyFont: { size: 12 }, padding: 8 },
-      },
-    },
-  });
-}
-
-function buildBarChart(canvasId, datasetDefs) {
-  const ctx = document.getElementById(canvasId).getContext("2d");
-  return new Chart(ctx, {
-    type: "bar",
-    data: { labels: [], datasets: datasetDefs.map(d => ({ ...d, data: [] })) },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: "nearest", intersect: true },
-      scales: {
-        x: { ticks: { color: "#8ea3c7" }, grid: { display: false } },
-        y: { ticks: { color: "#8ea3c7" }, grid: { color: "#1e3260" } },
-      },
-      plugins: {
-        legend: { labels: { color: "#e6ecf7", boxWidth: 12, font: { size: 11 } } },
-        tooltip: { titleFont: { size: 12 }, bodyFont: { size: 12 }, padding: 8 },
-      },
-    },
-  });
-}
-
-function renderComposition(status) {
+function renderComposition(status, idx) {
   const dirs = status.directions || [];
   const labels = dirs.map(d => shortName(d.name));
+  const c = charts[idx];
 
-  charts.compositionReal.data.labels = labels;
-  charts.compositionReal.data.datasets[0].data = dirs.map(d => d.cascaded_in_count ?? 0);
-  charts.compositionReal.data.datasets[1].data = dirs.map(d => d.consent_elsewhere_count ?? 0);
-  charts.compositionReal.update();
+  c.compositionReal.data.labels = labels;
+  c.compositionReal.data.datasets[0].data = dirs.map(d => d.cascaded_in_count ?? 0);
+  c.compositionReal.data.datasets[1].data = dirs.map(d => d.consent_elsewhere_count ?? 0);
+  c.compositionReal.update();
 
-  charts.compositionPending.data.labels = labels;
-  charts.compositionPending.data.datasets[0].data = dirs.map(d => d.no_consent_count ?? 0);
-  charts.compositionPending.update();
+  c.compositionPending.data.labels = labels;
+  c.compositionPending.data.datasets[0].data = dirs.map(d => d.no_consent_count ?? 0);
+  c.compositionPending.update();
 }
 
-function renderHistory(history) {
+function renderHistory(history, idx) {
   const dirs = history.directions || [];
+  const c = charts[idx];
 
   const datasetsFor = (field) => dirs.map((d, i) => ({
     label: shortName(d.name),
@@ -349,16 +532,16 @@ function renderHistory(history) {
     spanGaps: true,
   }));
 
-  charts.prob.data.datasets = datasetsFor("standalone_probability_pct");
-  charts.position.data.datasets = datasetsFor("real_competitor_position");
-  charts.cutoff.data.datasets = datasetsFor("predicted_cutoff_score");
-  charts.gap.data.datasets = datasetsFor("predicted_gap");
+  c.prob.data.datasets = datasetsFor("standalone_probability_pct");
+  c.position.data.datasets = datasetsFor("real_competitor_position");
+  c.cutoff.data.datasets = datasetsFor("predicted_cutoff_score");
+  c.gap.data.datasets = datasetsFor("predicted_gap");
 
-  Object.entries(charts).forEach(([key, c]) => { if (!key.startsWith("composition")) c.update(); });
+  c.prob.update(); c.position.update(); c.cutoff.update(); c.gap.update();
 }
 
-function renderEvents(events) {
-  const el = document.getElementById("events");
+function renderEvents(events, idx) {
+  const el = document.getElementById(`events-${idx}`);
   const items = events.events || [];
   if (!items.length) {
     el.innerHTML = `<li class="empty">Пока изменений не зафиксировано.</li>`;
@@ -374,54 +557,81 @@ function renderEvents(events) {
   `).join("");
 }
 
+function renderSummary(universities, statuses) {
+  const el = document.getElementById("summary");
+  el.innerHTML = universities.map((u, i) => {
+    const dirs = (statuses[i] && statuses[i].directions) || [];
+
+    const chips = dirs.map(d => {
+      const pct = d.standalone_probability_pct;
+      const cls = probClass(pct) || "muted";
+      const pctText = (pct !== null && pct !== undefined) ? `${Math.round(pct)}%` : "—";
+      const mark = d.deterministic_admitted ? " ✓" : "";
+      return `<span class="chip ${cls}">${shortName(d.name, 18)} — ${pctText}${mark}</span>`;
+    }).join("");
+
+    return `
+      <a class="summary-item" href="#uni-section-${i}" style="--uni-color: ${uniColor(i)}">
+        <span class="uni"><span class="dot"></span>${u}</span>
+        <div class="chips">${chips || "нет данных"}</div>
+        <span class="jump">к графикам ↓</span>
+      </a>
+    `;
+  }).join("");
+}
+
+let universitiesCache = null;
+
+async function getUniversities() {
+  if (!universitiesCache) {
+    universitiesCache = fetchJSON("/postupi/universities").catch(err => {
+      universitiesCache = null;
+      throw err;
+    });
+  }
+  return universitiesCache;
+}
+
 async function loadAll() {
   try {
-    const unis = await fetchJSON("/postupi/universities");
-    renderTabs(unis.universities || ["МАИ"]);
+    const unis = await getUniversities();
+    const raw = unis.universities || ["МАИ"];
+    // МАИ - исходный, основной вуз сайта (его акцентный синий цвет
+    // используется по всему интерфейсу) - всегда показываем первым,
+    // остальные вузы дальше по алфавиту, а не как отдаёт API.
+    const list = ["МАИ", ...raw.filter(u => u !== "МАИ").sort()];
+    renderUniversitySections(list);
 
-    const q = `?university=${encodeURIComponent(currentUniversity)}`;
-    const [status, history, events] = await Promise.all([
-      fetchJSON(`/postupi/status${q}`),
-      fetchJSON(`/postupi/history${q}`),
-      fetchJSON(`/postupi/events${q}`),
-    ]);
-    renderManualBadge(status);
-    renderCards(status);
-    renderComposition(status);
-    renderHistory(history);
-    renderEvents(events);
+    const statuses = new Array(list.length);
+    let latestFinishedAt = null;
+
+    await Promise.all(list.map(async (u, idx) => {
+      const q = `?university=${encodeURIComponent(u)}`;
+      const [status, history, events] = await Promise.all([
+        fetchJSON(`/postupi/status${q}`),
+        fetchJSON(`/postupi/history${q}`),
+        fetchJSON(`/postupi/events${q}`),
+      ]);
+      statuses[idx] = status;
+      renderCards(status, idx);
+      renderComposition(status, idx);
+      renderHistory(history, idx);
+      renderEvents(events, idx);
+      if (idx === 0) latestFinishedAt = status.run.finished_at;
+    }));
+
+    renderSummary(list, statuses);
+    document.getElementById("page-sub").textContent = `обновлено ${fmtDate(latestFinishedAt)}`;
+
+    lastUniversities = list;
+    layoutProgressBar(list);
+    // Графики Chart.js могут чуть донастроить размеры на следующий кадр -
+    // пересчитываем пропорции полосы ещё раз, чтобы не разъехалось.
+    requestAnimationFrame(() => layoutProgressBar(list));
   } catch (err) {
     document.getElementById("page-sub").textContent = `Ошибка загрузки: ${err.message}`;
   }
 }
-
-document.getElementById("refresh-btn").addEventListener("click", async () => {
-  const btn = document.getElementById("refresh-btn");
-  btn.disabled = true;
-  btn.textContent = "Обновляю…";
-  try {
-    const res = await fetch(`${API_BASE}/postupi/refresh`, { method: "POST" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    await loadAll();
-  } catch (err) {
-    alert(`Не удалось обновить: ${err.message}`);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "Обновить сейчас";
-  }
-});
-
-charts.prob = buildLineChart("chart-prob");
-charts.position = buildLineChart("chart-position");
-charts.cutoff = buildLineChart("chart-cutoff");
-charts.gap = buildLineChart("chart-gap");
-charts.compositionReal = buildBarChart("chart-composition-real", [
-  { label: "Каскад ведёт сюда (реальные конкуренты)", backgroundColor: "#ff5a5a" },
-  { label: "Согласие есть, но каскад уводит выше (не мешают)", backgroundColor: "#ffb44d" },
-]);
-charts.compositionPending = buildBarChart("chart-composition-pending", [
-  { label: "Без согласия (могут присоединиться)", backgroundColor: "#4f8cff" },
-]);
 
 loadAll();
 </script>
