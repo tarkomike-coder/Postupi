@@ -46,8 +46,30 @@ BAUMAN_HTTP_HEADERS = {
     "Accept": "application/json",
 }
 
+MAI_GOSUSLUGI_UNIVERSITY = "МАИ Госуслуги"
+MAI_GOSUSLUGI_ORG_ID = 19
+MAI_GOSUSLUGI_TARGET_CODES = {"09.03.01", "09.03.02", "09.03.03", "27.03.03", "10.05.02"}
+MAI_GOSUSLUGI_HTTP_HEADERS = {
+    "User-Agent": HTTP_HEADERS["User-Agent"],
+    "Referer": "https://www.gosuslugi.ru/vuznavigator/universities/19",
+    "Accept": "application/json",
+}
+
 _DEFAULT_SQLITE_PATH = os.path.join(os.path.dirname(__file__), "postupi.db")
 DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{_DEFAULT_SQLITE_PATH}")
+
+# Генерация статической страницы с вшитыми данными.
+# Шаблон-исходник (с плейсхолдером под данные) - НЕ перезаписывается генератором.
+POSTUPI_SITE_TEMPLATE = os.environ.get(
+    "POSTUPI_SITE_TEMPLATE",
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "site", "postupi", "index.html")),
+)
+# Куда пишется готовая страница. На проде - веб-корень nginx (/var/www/postupi-tarko);
+# локально по умолчанию - отдельная build-папка, чтобы не трогать шаблон.
+POSTUPI_WEB_ROOT = os.environ.get(
+    "POSTUPI_WEB_ROOT",
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "site", "_generated")),
+)
 
 REQUEST_TIMEOUT = 15
 RETRIES = 3

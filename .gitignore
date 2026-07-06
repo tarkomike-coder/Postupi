@@ -12,5 +12,8 @@ backend/raw_snapshots/
 .env
 backend/.env
 
+# сгенерированная статика (build-вывод генератора снапшота)
+site/_generated/
+
 # служебные файлы сессии Claude Code
 .claude/scheduled_tasks.lock

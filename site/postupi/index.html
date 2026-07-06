@@ -151,6 +151,23 @@
   }
   .uni-banner .uni-name { font-size: 19px; font-weight: 800; color: #fff; letter-spacing: .01em; }
   .uni-banner .uni-note { font-size: 12px; color: var(--muted); }
+  .source-switch {
+    margin-left: auto; display: inline-flex; gap: 4px; padding: 3px;
+    border: 1px solid var(--uni-color, var(--border)); border-radius: 8px;
+    background: rgba(10, 18, 38, .45);
+  }
+  .source-switch button {
+    appearance: none; border: 0; border-radius: 6px; padding: 6px 10px;
+    background: transparent; color: var(--muted); font: inherit; font-size: 12px;
+    cursor: pointer; white-space: nowrap;
+  }
+  .source-switch button.active {
+    background: var(--uni-color, var(--accent)); color: #fff; font-weight: 650;
+  }
+  @media (max-width: 640px) {
+    .source-switch { width: 100%; margin-left: 0; }
+    .source-switch button { flex: 1; }
+  }
 
   ul.events { list-style: none; margin: 0; padding: 0; }
   ul.events li { padding: 10px 4px; border-bottom: 1px solid var(--border); font-size: 13.5px; }
@@ -246,6 +263,7 @@ async function fetchJSON(path, timeoutMs = 12000) {
 // своей цветной "территории" со своим баннером сверху. charts[i] - набор
 // графиков конкретного вуза по индексу в списке universities.
 let charts = [];
+let appView = null;
 
 function buildLineChart(canvas) {
   const ctx = canvas.getContext("2d");
@@ -287,13 +305,23 @@ function buildBarChart(canvas, datasetDefs) {
   });
 }
 
-function renderUniversitySections(universities) {
+function renderUniversitySections(universities, sourceChoices = {}) {
   const el = document.getElementById("universities");
   el.innerHTML = universities.map((u, i) => `
     <div class="uni-section" id="uni-section-${i}" style="--uni-color: ${uniColor(i)}; --uni-bg: ${uniColorBg(i)}">
       <div class="uni-banner">
         <span class="uni-name">${u}</span>
         <span class="uni-note">направления, конкуренты и динамика по этому вузу — ниже</span>
+        ${sourceChoices[u] ? `
+          <span class="source-switch" data-base="${u}">
+            ${sourceChoices[u].map(choice => `
+              <button type="button" class="source-toggle-btn ${choice.active ? "active" : ""}"
+                data-base="${u}" data-source="${choice.key}" aria-pressed="${choice.active ? "true" : "false"}">
+                ${choice.label}
+              </button>
+            `).join("")}
+          </span>
+        ` : ""}
       </div>
 
       <section>
@@ -580,6 +608,72 @@ function renderSummary(universities, statuses) {
   }).join("");
 }
 
+const SOURCE_GROUPS = {
+  "МАИ Госуслуги": { base: "МАИ", label: "Госуслуги" },
+};
+
+function buildViewModel(list, perUni) {
+  const dataByName = {};
+  list.forEach((u, idx) => { dataByName[u] = perUni[idx]; });
+
+  const hiddenSources = new Set(Object.keys(SOURCE_GROUPS));
+  const displayList = list.filter(u => !hiddenSources.has(u));
+  const activeSourceByBase = {};
+  const sourceChoices = {};
+
+  Object.entries(SOURCE_GROUPS).forEach(([sourceName, meta]) => {
+    if (!dataByName[sourceName] || !dataByName[meta.base]) return;
+    activeSourceByBase[meta.base] = meta.base;
+    sourceChoices[meta.base] = [
+      { key: meta.base, label: meta.base, active: true },
+      { key: sourceName, label: meta.label, active: false },
+    ];
+  });
+
+  return { displayList, dataByName, activeSourceByBase, sourceChoices };
+}
+
+function currentPerUni() {
+  return appView.displayList.map(u => {
+    const source = appView.activeSourceByBase[u] || u;
+    return appView.dataByName[source];
+  });
+}
+
+function renderCurrentData() {
+  const perUni = currentPerUni();
+  const statuses = new Array(appView.displayList.length);
+  appView.displayList.forEach((u, idx) => {
+    const { status, history, events } = perUni[idx];
+    statuses[idx] = status;
+    renderCards(status, idx);
+    renderComposition(status, idx);
+    renderHistory(history, idx);
+    renderEvents(events, idx);
+  });
+  renderSummary(appView.displayList, statuses);
+  const latestFinishedAt = statuses[0] && statuses[0].run ? statuses[0].run.finished_at : null;
+  document.getElementById("page-sub").textContent = `обновлено ${fmtDate(latestFinishedAt)}`;
+
+  lastUniversities = appView.displayList;
+  layoutProgressBar(appView.displayList);
+  requestAnimationFrame(() => layoutProgressBar(appView.displayList));
+}
+
+document.addEventListener("click", (event) => {
+  const btn = event.target.closest(".source-toggle-btn");
+  if (!btn || !appView) return;
+  const base = btn.dataset.base;
+  const source = btn.dataset.source;
+  appView.activeSourceByBase[base] = source;
+  document.querySelectorAll(`.source-toggle-btn[data-base="${base}"]`).forEach(b => {
+    const active = b.dataset.source === source;
+    b.classList.toggle("active", active);
+    b.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+  renderCurrentData();
+});
+
 let universitiesCache = null;
 
 async function getUniversities() {
@@ -592,42 +686,42 @@ async function getUniversities() {
   return universitiesCache;
 }
 
+// Единый рендер из готовых данных - общий для вшитого снапшота и живого API.
+// perUni[idx] = { status, history, events } в том же виде, что отдают эндпоинты.
+function renderAll(list, perUni) {
+  appView = buildViewModel(list, perUni);
+  renderUniversitySections(appView.displayList, appView.sourceChoices);
+  renderCurrentData();
+}
+
 async function loadAll() {
   try {
+    // 1) Основной путь: данные вшиты в страницу генератором после синка.
+    // Ноль запросов к API - нечему обрываться на слабой мобильной сети.
+    const snap = window.__SNAPSHOT__;
+    if (snap && Array.isArray(snap.universities) && snap.universities.length) {
+      const withData = snap.universities.filter(u => u.status);
+      const list = withData.map(u => u.name);
+      const perUni = withData.map(u => ({ status: u.status, history: u.history, events: u.events }));
+      renderAll(list, perUni);
+      return;
+    }
+
+    // 2) Fallback (локальная разработка без снапшота): живой API.
     const unis = await getUniversities();
     const raw = unis.universities || ["МАИ"];
-    // МАИ - исходный, основной вуз сайта (его акцентный синий цвет
-    // используется по всему интерфейсу) - всегда показываем первым,
-    // остальные вузы дальше по алфавиту, а не как отдаёт API.
+    // МАИ - исходный, основной вуз сайта - всегда первым, остальные по алфавиту.
     const list = ["МАИ", ...raw.filter(u => u !== "МАИ").sort()];
-    renderUniversitySections(list);
-
-    const statuses = new Array(list.length);
-    let latestFinishedAt = null;
-
-    await Promise.all(list.map(async (u, idx) => {
+    const perUni = await Promise.all(list.map(async (u) => {
       const q = `?university=${encodeURIComponent(u)}`;
       const [status, history, events] = await Promise.all([
         fetchJSON(`/postupi/status${q}`),
         fetchJSON(`/postupi/history${q}`),
         fetchJSON(`/postupi/events${q}`),
       ]);
-      statuses[idx] = status;
-      renderCards(status, idx);
-      renderComposition(status, idx);
-      renderHistory(history, idx);
-      renderEvents(events, idx);
-      if (idx === 0) latestFinishedAt = status.run.finished_at;
+      return { status, history, events };
     }));
-
-    renderSummary(list, statuses);
-    document.getElementById("page-sub").textContent = `обновлено ${fmtDate(latestFinishedAt)}`;
-
-    lastUniversities = list;
-    layoutProgressBar(list);
-    // Графики Chart.js могут чуть донастроить размеры на следующий кадр -
-    // пересчитываем пропорции полосы ещё раз, чтобы не разъехалось.
-    requestAnimationFrame(() => layoutProgressBar(list));
+    renderAll(list, perUni);
   } catch (err) {
     document.getElementById("page-sub").textContent = `Ошибка загрузки: ${err.message}`;
   }

@@ -8,6 +8,7 @@ from models import (
 )
 from services.sync import run_full_sync
 from services.bauman_import import run_bauman_sync
+from services.mai_gosuslugi_import import run_mai_gosuslugi_sync
 from config import SIM_CATEGORY
 
 router = APIRouter(prefix="/postupi", tags=["postupi"])
@@ -42,8 +43,7 @@ def _latest_seats(db: Session, direction_id: int):
     )
 
 
-@router.get("/status")
-def status(university: str = "МАИ", db: Session = Depends(get_db)):
+def build_status(db: Session, university: str) -> dict:
     run = _latest_ok_run(db, university)
     applicant = db.query(TrackedApplicant).filter(TrackedApplicant.active.is_(True)).first()
     if not applicant:
@@ -110,8 +110,7 @@ def status(university: str = "МАИ", db: Session = Depends(get_db)):
     }
 
 
-@router.get("/history")
-def history(university: str = "МАИ", db: Session = Depends(get_db)):
+def build_history(db: Session, university: str) -> dict:
     applicant = db.query(TrackedApplicant).filter(TrackedApplicant.active.is_(True)).first()
     if not applicant:
         raise HTTPException(status_code=404, detail="Нет отслеживаемого абитуриента")
@@ -169,8 +168,7 @@ def history(university: str = "МАИ", db: Session = Depends(get_db)):
     return {"directions": list(series.values())}
 
 
-@router.get("/events")
-def events(university: str = "МАИ", db: Session = Depends(get_db)):
+def build_events(db: Session, university: str) -> dict:
     applicant = db.query(TrackedApplicant).filter(TrackedApplicant.active.is_(True)).first()
     if not applicant:
         raise HTTPException(status_code=404, detail="Нет отслеживаемого абитуриента")
@@ -201,7 +199,15 @@ def events(university: str = "МАИ", db: Session = Depends(get_db)):
 
 @router.post("/refresh")
 def refresh(university: str = "МАИ"):
-    run = run_bauman_sync(trigger="manual") if university == "Бауманка" else run_full_sync(trigger="manual")
+    if university == "Бауманка":
+        run = run_bauman_sync(trigger="manual")
+    elif university == "МАИ Госуслуги":
+        run = run_mai_gosuslugi_sync(trigger="manual")
+    else:
+        run = run_full_sync(trigger="manual")
+    # После ручного синка пересобираем статическую страницу.
+    from services.snapshot import regenerate_safe
+    regenerate_safe()
     return {
         "id": run.id,
         "status": run.status,
@@ -211,9 +217,28 @@ def refresh(university: str = "МАИ"):
     }
 
 
-@router.get("/universities")
-def universities(db: Session = Depends(get_db)):
+def list_universities(db: Session) -> dict:
     """Список вузов, по которым уже есть хотя бы один успешный прогон -
     фронтенд использует это, чтобы понять, показывать ли вкладку Бауманки."""
     rows = db.query(MonitorRun.university).filter(MonitorRun.status == "ok").distinct().all()
     return {"universities": sorted({r[0] for r in rows})}
+
+
+@router.get("/status")
+def status(university: str = "МАИ", db: Session = Depends(get_db)):
+    return build_status(db, university)
+
+
+@router.get("/history")
+def history(university: str = "МАИ", db: Session = Depends(get_db)):
+    return build_history(db, university)
+
+
+@router.get("/events")
+def events(university: str = "МАИ", db: Session = Depends(get_db)):
+    return build_events(db, university)
+
+
+@router.get("/universities")
+def universities(db: Session = Depends(get_db)):
+    return list_universities(db)
