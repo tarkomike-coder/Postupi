@@ -3,10 +3,6 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.date import DateTrigger
-
 from config import SCHEDULE_TIMES_MSK
 from database.db import SessionLocal
 from models import MonitorRun
@@ -59,6 +55,10 @@ def _oldest_latest_ok_started_at():
 
 
 def start_scheduler():
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.triggers.date import DateTrigger
+
     global _scheduler
     if _scheduler is not None:
         return _scheduler

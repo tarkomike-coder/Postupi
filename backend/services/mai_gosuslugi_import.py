@@ -1,7 +1,14 @@
 """Полный прогон для источника МАИ на Госуслугах."""
 from datetime import datetime
 
-from config import DEFAULT_TARGET_CODE, DEFAULT_TARGET_NAME, MAI_GOSUSLUGI_UNIVERSITY, SIM_CATEGORY
+from config import (
+    DEFAULT_TARGET_CODE,
+    DEFAULT_TARGET_NAME,
+    LEGACY_COVERAGE,
+    LEGACY_MODEL_VERSION,
+    MAI_GOSUSLUGI_UNIVERSITY,
+    SIM_CATEGORY,
+)
 from database.db import SessionLocal
 from models import Direction, SeatPlan, CompetitorSnapshot, MonitorRun, TrackedApplicant, ApplicantChangeEvent
 from services.mai_gosuslugi_scraper import scrape_scope, ScrapeError
@@ -115,7 +122,13 @@ def _log_change_events(db, run: MonitorRun):
 
 def run_mai_gosuslugi_sync(trigger: str = "schedule") -> MonitorRun:
     db = SessionLocal()
-    run = MonitorRun(status="running", trigger=trigger, university=MAI_GOSUSLUGI_UNIVERSITY)
+    run = MonitorRun(
+        status="running",
+        trigger=trigger,
+        university=MAI_GOSUSLUGI_UNIVERSITY,
+        model_version=LEGACY_MODEL_VERSION,
+        coverage=LEGACY_COVERAGE,
+    )
     db.add(run)
     db.commit()
     db.refresh(run)

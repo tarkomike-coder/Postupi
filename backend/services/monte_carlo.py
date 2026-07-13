@@ -21,10 +21,55 @@ services.simulation.run_deferred_acceptance, и сохраняет SimulationRes
 import random
 import statistics
 from collections import defaultdict
+from datetime import datetime
+from math import floor
+from zoneinfo import ZoneInfo
 
-from config import SIM_CATEGORY, MC_TRIALS, MC_P3_NO_CONSENT_JOINS, MC_P4_CONSENT_DROPS_OUT
+from config import (
+    BUDGET_APPLICATION_DEADLINE_AT,
+    BUDGET_CAMPAIGN_START_AT,
+    MC_NEW_APPLICANT_SHARE,
+    MC_P3_NO_CONSENT_JOINS,
+    MC_P4_CONSENT_DROPS_OUT,
+    MC_TRIALS,
+    SIM_CATEGORY,
+)
 from models import CompetitorSnapshot, SeatPlan, TrackedApplicant, SimulationResult
 from services.simulation import run_deferred_acceptance
+
+MSK = ZoneInfo("Europe/Moscow")
+
+
+def _as_moscow_aware(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=MSK)
+    return value.astimezone(MSK)
+
+
+def _parse_datetime(value) -> datetime:
+    if isinstance(value, datetime):
+        return _as_moscow_aware(value)
+    return _as_moscow_aware(datetime.fromisoformat(value))
+
+
+def _deadline_context(
+    now: datetime | None = None,
+    application_deadline_at=BUDGET_APPLICATION_DEADLINE_AT,
+    campaign_start_at=BUDGET_CAMPAIGN_START_AT,
+) -> dict:
+    now_at = _as_moscow_aware(now or datetime.now(MSK))
+    deadline_at = _parse_datetime(application_deadline_at)
+    start_at = _parse_datetime(campaign_start_at)
+
+    seconds_left = max(0.0, (deadline_at - now_at).total_seconds())
+    campaign_seconds = max(1.0, (deadline_at - start_at).total_seconds())
+    time_left_ratio = seconds_left / campaign_seconds
+    new_applicant_risk_factor = time_left_ratio ** 0.7 if seconds_left > 0 else 0.0
+    return {
+        "application_deadline_at": deadline_at,
+        "time_left_ratio": time_left_ratio,
+        "new_applicant_risk_factor": new_applicant_risk_factor,
+    }
 
 
 def _latest_capacities(db, as_of_run_id: int) -> dict:
@@ -102,6 +147,71 @@ def _build_trial_applicants(grouped: dict, protected_codes: set) -> dict:
     return applicants
 
 
+def _direction_score_pools(grouped: dict, protected_codes: set) -> dict:
+    pools = defaultdict(list)
+    for code, entries in grouped.items():
+        if code in protected_codes:
+            continue
+        for direction_id, _priority, score, _consent in entries:
+            pools[direction_id].append(score)
+    return pools
+
+
+def _expected_new_applicants_by_direction(
+    grouped: dict,
+    protected_codes: set,
+    new_applicant_risk_factor: float,
+    share: float = MC_NEW_APPLICANT_SHARE,
+) -> dict:
+    if new_applicant_risk_factor <= 0:
+        return defaultdict(float)
+
+    current_application_counts = defaultdict(int)
+    for code, entries in grouped.items():
+        if code in protected_codes:
+            continue
+        seen_directions = {direction_id for direction_id, _priority, _score, _consent in entries}
+        for direction_id in seen_directions:
+            current_application_counts[direction_id] += 1
+
+    return {
+        direction_id: count * share * new_applicant_risk_factor
+        for direction_id, count in current_application_counts.items()
+    }
+
+
+def _draw_expected_count(expected: float) -> int:
+    if expected <= 0:
+        return 0
+    whole = floor(expected)
+    return whole + (1 if random.random() < expected - whole else 0)
+
+
+def _sample_future_score(scores: list[int]) -> int | None:
+    if not scores:
+        return None
+    ordered = sorted(scores)
+    strong_from = min(len(ordered) - 1, int(len(ordered) * 0.55))
+    return random.choice(ordered[strong_from:])
+
+
+def _add_future_applicants(
+    applicants: dict,
+    score_pools: dict,
+    expected_new_by_direction: dict,
+) -> None:
+    synthetic_id = 0
+    for direction_id, expected in expected_new_by_direction.items():
+        for _ in range(_draw_expected_count(expected)):
+            score = _sample_future_score(score_pools.get(direction_id, []))
+            if score is None:
+                continue
+            synthetic_id += 1
+            applicants[f"__future_{direction_id}_{synthetic_id}_{random.randrange(1_000_000)}"] = [
+                (direction_id, 1, score)
+            ]
+
+
 def _real_competitors_by_direction(grouped: dict, baseline_assignment: dict, tracked_codes: set) -> dict:
     """{direction_id: [(code, score), ...]} - те, кого baseline-каскад
     (по текущим согласиям, без рандомизации) реально распределяет именно
@@ -137,7 +247,14 @@ def _group_breakdown(grouped: dict, baseline_assignment: dict, tracked_codes: se
     return result
 
 
-def compute_simulation(db, run_id: int, trials: int = MC_TRIALS):
+def compute_simulation(
+    db,
+    run_id: int,
+    trials: int = MC_TRIALS,
+    application_deadline_at=BUDGET_APPLICATION_DEADLINE_AT,
+    campaign_start_at=BUDGET_CAMPAIGN_START_AT,
+    now: datetime | None = None,
+):
     grouped = _load_grouped_rows(db, run_id)
     capacities = _latest_capacities(db, run_id)
 
@@ -150,6 +267,13 @@ def compute_simulation(db, run_id: int, trials: int = MC_TRIALS):
 
     real_competitors = _real_competitors_by_direction(grouped, baseline_assignment, set(tracked_codes))
     breakdown = _group_breakdown(grouped, baseline_assignment, set(tracked_codes))
+    deadline = _deadline_context(now, application_deadline_at, campaign_start_at)
+    score_pools = _direction_score_pools(grouped, set(tracked_codes))
+    expected_new_by_direction = _expected_new_applicants_by_direction(
+        grouped,
+        set(tracked_codes),
+        deadline["new_applicant_risk_factor"],
+    )
 
     # --- Monte Carlo ---
     tally = {code: defaultdict(int) for code in tracked_codes}            # итоговый результат (её реальный список)
@@ -158,6 +282,9 @@ def compute_simulation(db, run_id: int, trials: int = MC_TRIALS):
 
     for _ in range(trials):
         trial_applicants = _build_trial_applicants(grouped, set(tracked_codes))
+        # Новые заявления моделируются отдельно от перераспределения уже известных
+        # абитуриентов и полностью выключаются после дедлайна.
+        _add_future_applicants(trial_applicants, score_pools, expected_new_by_direction)
         assignment = run_deferred_acceptance(trial_applicants, capacities)
         for code in tracked_codes:
             tally[code][assignment.get(code)] += 1
@@ -226,6 +353,10 @@ def compute_simulation(db, run_id: int, trials: int = MC_TRIALS):
                 standalone_probability_pct=standalone_pct,
                 predicted_cutoff_score=predicted_cutoff,
                 predicted_gap=predicted_gap,
+                application_deadline_at=deadline["application_deadline_at"],
+                time_left_ratio=deadline["time_left_ratio"],
+                new_applicant_risk_factor=deadline["new_applicant_risk_factor"],
+                expected_new_applicants=expected_new_by_direction.get(direction_id, 0.0),
                 real_competitor_count=real_count,
                 real_competitor_position=real_position,
                 avg_real_competitor_score=avg_real,

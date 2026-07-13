@@ -71,6 +71,7 @@
   .scores .row .val b { font-size: 14px; font-weight: 650; color: #fff; }
   .scores .row.mine { padding-bottom: 7px; margin-bottom: 2px; border-bottom: 1px dashed var(--border); }
   .scores .row.mine .val b { font-size: 17px; }
+  .deadline-note { font-size: 11px; color: var(--muted); margin-top: -2px; }
   .delta { font-size: 11.5px; font-weight: 650; }
   .delta.pos { color: var(--green); }
   .delta.neg { color: var(--red); }
@@ -85,6 +86,21 @@
   @media (max-width: 800px) { .charts-grid { grid-template-columns: 1fr; } }
   .chart-box { height: 280px; }
   .chart-hint { font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .history-legend {
+    display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap;
+    margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border);
+  }
+  .legend-item { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: #cdd9f0; font-size: 11.5px; }
+  .legend-swatch { width: 18px; height: 3px; border-radius: 999px; flex: 0 0 auto; background: var(--legend-color); }
+  .legend-swatch.legacy {
+    height: 0; border-top: 3px dashed var(--legend-color); background: transparent;
+  }
+  .legend-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+  .legend-model { color: var(--muted); margin-left: auto; }
+  @media (max-width: 800px) {
+    .legend-model { width: 100%; margin-left: 0; }
+    .legend-label { max-width: 72vw; }
+  }
 
   /* Сводка сверху - вертикальный список (тот же порядок, что и секции
      ниже - явный намёк, что дальше на странице продолжение). Каждая
@@ -238,6 +254,18 @@ function fmtDate(iso) {
   return d.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
+function fmtDeadlineMsk(iso) {
+  const d = new Date(iso || "2026-07-25T17:00:00+03:00");
+  return d.toLocaleString("ru-RU", {
+    timeZone: "Europe/Moscow",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).replace(",", "");
+}
+
 function shortName(s, n = 22) {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
@@ -265,7 +293,7 @@ async function fetchJSON(path, timeoutMs = 12000) {
 let charts = [];
 let appView = null;
 
-function buildLineChart(canvas) {
+function buildLineChart(canvas, yOptions = {}) {
   const ctx = canvas.getContext("2d");
   return new Chart(ctx, {
     type: "line",
@@ -275,11 +303,19 @@ function buildLineChart(canvas) {
       interaction: { mode: "nearest", intersect: true },
       scales: {
         x: { type: "time", time: { unit: "day" }, ticks: { color: "#8ea3c7" }, grid: { color: "#1e3260" } },
-        y: { ticks: { color: "#8ea3c7" }, grid: { color: "#1e3260" } },
+        y: { ...yOptions, ticks: { color: "#8ea3c7" }, grid: { color: "#1e3260" } },
       },
       plugins: {
-        legend: { labels: { color: "#e6ecf7", boxWidth: 12, font: { size: 11 } } },
-        tooltip: { titleFont: { size: 12 }, bodyFont: { size: 12 }, padding: 8 },
+        legend: { display: false },
+        tooltip: {
+          titleFont: { size: 12 }, bodyFont: { size: 12 }, padding: 8,
+          callbacks: {
+            label: (ctx) => {
+              const model = ctx.raw && ctx.raw.model_label ? ` · ${ctx.raw.model_label}` : "";
+              return `${ctx.dataset.label}: ${ctx.formattedValue}${model}`;
+            },
+          },
+        },
       },
     },
   });
@@ -348,6 +384,7 @@ function renderUniversitySections(universities, sourceChoices = {}) {
       <section>
         <h2>Динамика</h2>
         <div class="panel">
+          <div class="history-legend" id="history-legend-${i}"></div>
           <div class="charts-grid">
             <div><div class="sub" style="margin-bottom:6px">Вероятность зачисления, % (независимо от приоритетов)</div><div class="chart-box"><canvas id="chart-prob-${i}"></canvas></div></div>
             <div><div class="sub" style="margin-bottom:6px">Реальное место</div><div class="chart-box"><canvas id="chart-position-${i}"></canvas></div></div>
@@ -371,7 +408,7 @@ function renderUniversitySections(universities, sourceChoices = {}) {
   `).join("");
 
   charts = universities.map((_, i) => ({
-    prob: buildLineChart(document.getElementById(`chart-prob-${i}`)),
+    prob: buildLineChart(document.getElementById(`chart-prob-${i}`), { min: 0, max: 100 }),
     position: buildLineChart(document.getElementById(`chart-position-${i}`)),
     cutoff: buildLineChart(document.getElementById(`chart-cutoff-${i}`)),
     gap: buildLineChart(document.getElementById(`chart-gap-${i}`)),
@@ -474,17 +511,18 @@ function renderCards(status, idx) {
     return;
   }
   el.innerHTML = dirs.map(d => {
-    // Главное число - независимая оценка направления САМОГО ПО СЕБЕ (как
-    // если бы оно было единственным / приоритетом 1). Не зависит от
-    // остальных приоритетов, поэтому не бывает искусственно заниженной.
-    const headline = d.standalone_probability_pct;
-    const headlineText = fmt(headline !== null && headline !== undefined ? Math.round(headline) : null, "%");
+    // Главный статус - проходит ли направление по текущему реальному месту,
+    // без учета собственных приоритетов. Monte Carlo остается отдельным
+    // риск-прогнозом, но не красит проходную текущую позицию в "не проходит".
+    const currentPasses = d.real_competitor_position !== null && d.real_competitor_position !== undefined
+      && d.seats_budget !== null && d.seats_budget !== undefined
+      && d.real_competitor_position <= d.seats_budget;
+    const headlineText = currentPasses ? "проходит" : "не проходит";
+    const headlineClass = currentPasses ? "green" : "red";
+    const standalone = d.standalone_probability_pct;
 
-    let flagClass = "not-admitted", flagText = "слабая позиция";
-    if (headline !== null && headline !== undefined) {
-      if (headline >= 70) { flagClass = "admitted"; flagText = "надёжная позиция"; }
-      else if (headline >= 30) { flagClass = "uncertain"; flagText = "неопределённая позиция"; }
-    }
+    let flagClass = currentPasses ? "admitted" : "not-admitted";
+    let flagText = currentPasses ? "проходит сейчас" : "сейчас вне мест";
     if (d.deterministic_admitted) { flagText += " · текущий прогноз зачисления"; }
 
     const deltaHtml = (gapValue) => {
@@ -499,13 +537,16 @@ function renderCards(status, idx) {
         <span class="val"><b>${value}</b>${gapValue !== undefined ? deltaHtml(gapValue) : ""}</span>
       </div>
     `;
+    const deadlineNote = `
+      <div class="deadline-note">Прогноз учитывает завершение подачи заявлений на бюджет: ${fmtDeadlineMsk(d.application_deadline_at)} МСК</div>
+    `;
 
     return `
     <div class="card">
       <div class="priority-badge">приоритет ${fmt(d.priority)}</div>
       <div class="name">${d.name}</div>
-      <div class="prob ${probClass(headline)}">${headlineText}</div>
-      <div class="prob-label">вероятность зачисления сюда (независимо от приоритетов)</div>
+      <div class="prob ${headlineClass}">${headlineText}</div>
+      <div class="prob-label">текущее положение без учёта приоритетов</div>
       <div class="final-line">Итоговый шанс попасть именно сюда (с учётом каскада всех приоритетов): <b>${fmt(d.probability_pct !== null ? Math.round(d.probability_pct) : null, "%")}</b></div>
       <div class="position-row">
         <div class="real">
@@ -520,8 +561,10 @@ function renderCards(status, idx) {
       </div>
       <div class="scores">
         ${scoreRow("Мой балл", fmt(d.total_score))}
+        ${scoreRow("Риск-прогноз направления", fmt(standalone !== null && standalone !== undefined ? Math.round(standalone) : null, "%"))}
         ${d.cutoff_2025 != null ? scoreRow("Проходной балл 2025", fmt(d.cutoff_2025), d.total_score - d.cutoff_2025) : ""}
         ${scoreRow("Прогноз проходного", fmt1(d.predicted_cutoff_score), d.predicted_gap)}
+        ${deadlineNote}
         ${scoreRow("Средний балл конкурентов", fmt1(d.avg_real_competitor_score), d.gap_to_avg)}
         ${scoreRow("Мин. балл конкурентов", fmt(d.min_real_competitor_score), d.gap_to_min)}
       </div>
@@ -550,15 +593,53 @@ function renderHistory(history, idx) {
   const dirs = history.directions || [];
   const c = charts[idx];
 
-  const datasetsFor = (field) => dirs.map((d, i) => ({
-    label: shortName(d.name),
-    data: d.points.filter(p => p[field] !== null && p[field] !== undefined)
-                  .map(p => ({ x: p.timestamp, y: p[field] })),
-    borderColor: colorFor(i),
-    backgroundColor: colorFor(i),
-    tension: 0.25,
-    spanGaps: true,
-  }));
+  const modelLabel = (v) => v === "full_cascade_v1" ? "полный каскад" : "старая модель";
+  const hasFull = dirs.some(d => (d.points || []).some(p => p.model_version === "full_cascade_v1"));
+  const hasLegacy = dirs.some(d => (d.points || []).some(p => (p.model_version || "legacy_partial") !== "full_cascade_v1"));
+  const mixedModels = hasFull && hasLegacy;
+
+  const legend = document.getElementById(`history-legend-${idx}`);
+  if (legend) {
+    const directionItems = dirs.map((d, i) => `
+      <span class="legend-item">
+        <span class="legend-swatch" style="--legend-color:${colorFor(i)}"></span>
+        <span class="legend-label">${shortName(d.name, 34)}</span>
+      </span>
+    `).join("");
+    const modelItems = mixedModels ? `
+      <span class="legend-item legend-model">
+        <span class="legend-swatch" style="--legend-color:#cdd9f0"></span>
+        <span>полный каскад</span>
+      </span>
+      <span class="legend-item">
+        <span class="legend-swatch legacy" style="--legend-color:#8ea3c7"></span>
+        <span>старая модель</span>
+      </span>
+    ` : "";
+    legend.innerHTML = directionItems + modelItems;
+  }
+
+  const datasetsFor = (field) => dirs.flatMap((d, i) => {
+    const byModel = {};
+    d.points
+      .filter(p => p[field] !== null && p[field] !== undefined)
+      .forEach(p => {
+        const key = p.model_version || "legacy_partial";
+        (byModel[key] ||= []).push({ x: p.timestamp, y: p[field], model_version: key, model_label: modelLabel(key), coverage: p.coverage });
+      });
+    return Object.entries(byModel).map(([model, points]) => ({
+      label: shortName(d.name, 30),
+      data: points,
+      borderColor: colorFor(i),
+      backgroundColor: colorFor(i),
+      borderDash: mixedModels && model !== "full_cascade_v1" ? [6, 4] : [],
+      borderWidth: model === "full_cascade_v1" ? 3 : 2,
+      pointRadius: model === "full_cascade_v1" ? 3 : 2.5,
+      pointHoverRadius: 5,
+      tension: 0.25,
+      spanGaps: true,
+    }));
+  });
 
   c.prob.data.datasets = datasetsFor("standalone_probability_pct");
   c.position.data.datasets = datasetsFor("real_competitor_position");
@@ -591,9 +672,11 @@ function renderSummary(universities, statuses) {
     const dirs = (statuses[i] && statuses[i].directions) || [];
 
     const chips = dirs.map(d => {
-      const pct = d.standalone_probability_pct;
-      const cls = probClass(pct) || "muted";
-      const pctText = (pct !== null && pct !== undefined) ? `${Math.round(pct)}%` : "—";
+      const currentPasses = d.real_competitor_position !== null && d.real_competitor_position !== undefined
+        && d.seats_budget !== null && d.seats_budget !== undefined
+        && d.real_competitor_position <= d.seats_budget;
+      const cls = currentPasses ? "green" : "red";
+      const pctText = currentPasses ? "проходит" : "не проходит";
       const mark = d.deterministic_admitted ? " ✓" : "";
       return `<span class="chip ${cls}">${shortName(d.name, 18)} — ${pctText}${mark}</span>`;
     }).join("");

@@ -14,5 +14,7 @@ class MonitorRun(Base):
     status = Column(String(20), nullable=False, default="running")  # running/ok/partial/error
     trigger = Column(String(20), nullable=False, default="schedule")  # schedule/manual/manual_import
     source_generation_token = Column(String(100), nullable=True)
+    model_version = Column(String(50), nullable=True)
+    coverage = Column(String(50), nullable=True)
     directions_scraped = Column(Integer, nullable=True)
     error_message = Column(Text, nullable=True)

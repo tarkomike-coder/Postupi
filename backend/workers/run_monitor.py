@@ -4,6 +4,8 @@ services.bauman_import.run_bauman_sync)."""
 from services.sync import run_full_sync
 from services.bauman_import import run_bauman_sync
 from services.mai_gosuslugi_import import run_mai_gosuslugi_sync
+from services.full_snapshot_import import run_bauman_full_snapshot_sync, run_mai_full_snapshot_sync
+from config import FULL_SNAPSHOT_DATABASE_URL
 
 
 def run(trigger: str = "manual"):
@@ -14,14 +16,22 @@ def run(trigger: str = "manual"):
 
 
 def run_bauman(trigger: str = "manual"):
-    result = run_bauman_sync(trigger=trigger)
+    result = (
+        run_bauman_full_snapshot_sync(trigger=trigger)
+        if FULL_SNAPSHOT_DATABASE_URL
+        else run_bauman_sync(trigger=trigger)
+    )
     print(f"RUN {result.id} (Бауманка): status={result.status} directions={result.directions_scraped} "
           f"error={result.error_message}")
     return result
 
 
 def run_mai_gosuslugi(trigger: str = "manual"):
-    result = run_mai_gosuslugi_sync(trigger=trigger)
+    result = (
+        run_mai_full_snapshot_sync(trigger=trigger)
+        if FULL_SNAPSHOT_DATABASE_URL
+        else run_mai_gosuslugi_sync(trigger=trigger)
+    )
     print(f"RUN {result.id} (МАИ Госуслуги): status={result.status} directions={result.directions_scraped} "
           f"error={result.error_message}")
     return result

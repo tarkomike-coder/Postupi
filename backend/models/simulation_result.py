@@ -35,6 +35,11 @@ class SimulationResult(Base):
     predicted_cutoff_score = Column(Float, nullable=True)
     predicted_gap = Column(Float, nullable=True)
 
+    application_deadline_at = Column(DateTime(timezone=True), nullable=True)
+    time_left_ratio = Column(Float, nullable=True)
+    new_applicant_risk_factor = Column(Float, nullable=True)
+    expected_new_applicants = Column(Float, nullable=True)
+
     # "Реальные" конкуренты - те, кого алгоритм отложенного принятия
     # (по ТЕКУЩИМ согласиям, без рандомизации) реально распределяет именно
     # сюда: то есть люди, которые либо указали это направление приоритетом

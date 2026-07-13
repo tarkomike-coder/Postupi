@@ -9,7 +9,7 @@ from datetime import datetime
 
 from config import (
     RAW_SNAPSHOTS_DIR, RAW_SNAPSHOTS_TO_KEEP,
-    DEFAULT_TARGET_CODE, DEFAULT_TARGET_NAME, SIM_CATEGORY,
+    DEFAULT_TARGET_CODE, DEFAULT_TARGET_NAME, LEGACY_COVERAGE, LEGACY_MODEL_VERSION, SIM_CATEGORY,
 )
 from database.db import SessionLocal
 from models import Direction, SeatPlan, CompetitorSnapshot, TrackedApplicant, ApplicantChangeEvent, MonitorRun
@@ -167,7 +167,13 @@ def _log_change_events(db, run: MonitorRun, direction_by_name: dict):
 
 def run_full_sync(trigger: str = "schedule") -> MonitorRun:
     db = SessionLocal()
-    run = MonitorRun(status="running", trigger=trigger, university="МАИ")
+    run = MonitorRun(
+        status="running",
+        trigger=trigger,
+        university="МАИ",
+        model_version=LEGACY_MODEL_VERSION,
+        coverage=LEGACY_COVERAGE,
+    )
     db.add(run)
     db.commit()
     db.refresh(run)

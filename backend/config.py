@@ -1,4 +1,5 @@
 import os
+from sqlalchemy.engine import make_url
 
 BASE_LIST_URL = "https://priem.mai.ru/list/"
 DATA_URL = "https://public.mai.ru/priem/list/data/{token}.html"
@@ -58,6 +59,33 @@ MAI_GOSUSLUGI_HTTP_HEADERS = {
 _DEFAULT_SQLITE_PATH = os.path.join(os.path.dirname(__file__), "postupi.db")
 DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{_DEFAULT_SQLITE_PATH}")
 
+
+def _default_full_snapshot_database_url() -> str:
+    explicit = os.environ.get("FULL_SNAPSHOT_DATABASE_URL") or os.environ.get("MAI_DATABASE_URL")
+    if explicit:
+        return explicit
+    if DATABASE_URL.startswith(("postgresql://", "postgresql+", "postgres://")):
+        return make_url(DATABASE_URL).set(database="mai").render_as_string(hide_password=False)
+    return ""
+
+
+FULL_SNAPSHOT_DATABASE_URL = _default_full_snapshot_database_url()
+FULL_MODEL_VERSION = "full_cascade_v1"
+FULL_COVERAGE = "full"
+LEGACY_MODEL_VERSION = "legacy_partial"
+LEGACY_COVERAGE = "tracked_scope_partial"
+
+# Дедлайн подачи заявлений на бюджет. Monte Carlo использует его, чтобы
+# отделить риск новых заявлений от перераспределения уже известных заявлений.
+BUDGET_APPLICATION_DEADLINE_AT = os.environ.get(
+    "BUDGET_APPLICATION_DEADLINE_AT",
+    "2026-07-25T17:00:00+03:00",
+)
+BUDGET_CAMPAIGN_START_AT = os.environ.get(
+    "BUDGET_CAMPAIGN_START_AT",
+    "2026-06-20T00:00:00+03:00",
+)
+
 # Генерация статической страницы с вшитыми данными.
 # Шаблон-исходник (с плейсхолдером под данные) - НЕ перезаписывается генератором.
 POSTUPI_SITE_TEMPLATE = os.environ.get(
@@ -80,6 +108,7 @@ MAX_WORKERS = 8
 MC_TRIALS = 500
 MC_P3_NO_CONSENT_JOINS = 0.30   # вероятность, что человек без согласия всё же подаст его
 MC_P4_CONSENT_DROPS_OUT = 0.15  # вероятность, что человек с согласием реально уйдёт в другой вуз
+MC_NEW_APPLICANT_SHARE = float(os.environ.get("MC_NEW_APPLICANT_SHARE", "0.03"))
 
 RAW_SNAPSHOTS_TO_KEEP = 3
 RAW_SNAPSHOTS_DIR = os.environ.get(

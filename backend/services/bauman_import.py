@@ -5,7 +5,7 @@ JSON API Госуслуг (services/bauman_scraper.py, без CSV и без ло
 Direction/CompetitorSnapshot/SimulationResult и compute_simulation as-is."""
 from datetime import datetime
 
-from config import DEFAULT_TARGET_CODE, DEFAULT_TARGET_NAME, SIM_CATEGORY
+from config import DEFAULT_TARGET_CODE, DEFAULT_TARGET_NAME, LEGACY_COVERAGE, LEGACY_MODEL_VERSION, SIM_CATEGORY
 from database.db import SessionLocal
 from models import Direction, SeatPlan, CompetitorSnapshot, MonitorRun, TrackedApplicant, ApplicantChangeEvent
 from services.bauman_scraper import scrape_scope, ScrapeError
@@ -121,7 +121,13 @@ def _log_change_events(db, run: MonitorRun):
 
 def run_bauman_sync(trigger: str = "schedule") -> MonitorRun:
     db = SessionLocal()
-    run = MonitorRun(status="running", trigger=trigger, university=UNIVERSITY)
+    run = MonitorRun(
+        status="running",
+        trigger=trigger,
+        university=UNIVERSITY,
+        model_version=LEGACY_MODEL_VERSION,
+        coverage=LEGACY_COVERAGE,
+    )
     db.add(run)
     db.commit()
     db.refresh(run)

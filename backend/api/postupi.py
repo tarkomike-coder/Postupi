@@ -9,7 +9,8 @@ from models import (
 from services.sync import run_full_sync
 from services.bauman_import import run_bauman_sync
 from services.mai_gosuslugi_import import run_mai_gosuslugi_sync
-from config import SIM_CATEGORY
+from services.full_snapshot_import import run_bauman_full_snapshot_sync, run_mai_full_snapshot_sync
+from config import FULL_SNAPSHOT_DATABASE_URL, SIM_CATEGORY
 
 router = APIRouter(prefix="/postupi", tags=["postupi"])
 
@@ -73,6 +74,7 @@ def build_status(db: Session, university: str) -> dict:
         sim = sim_by_direction.get(direction.id)
         directions.append({
             "direction_id": direction.id,
+            "external_group_id": direction.external_group_id,
             "name": direction.name,
             "fgos_code": direction.fgos_code,
             "cutoff_2025": direction.cutoff_2025,
@@ -83,6 +85,10 @@ def build_status(db: Session, university: str) -> dict:
             "seats_budget": seats.seats_budget if seats else None,
             "predicted_cutoff_score": sim.predicted_cutoff_score if sim else None,
             "predicted_gap": sim.predicted_gap if sim else None,
+            "application_deadline_at": sim.application_deadline_at if sim else None,
+            "time_left_ratio": sim.time_left_ratio if sim else None,
+            "new_applicant_risk_factor": sim.new_applicant_risk_factor if sim else None,
+            "expected_new_applicants": sim.expected_new_applicants if sim else None,
             "deterministic_admitted": sim.deterministic_admitted if sim else None,
             "probability_pct": sim.probability_pct if sim else None,
             "standalone_probability_pct": sim.standalone_probability_pct if sim else None,
@@ -105,6 +111,8 @@ def build_status(db: Session, university: str) -> dict:
             "finished_at": run.finished_at,
             "trigger": run.trigger,
             "source_generation_token": run.source_generation_token,
+            "model_version": run.model_version,
+            "coverage": run.coverage,
         },
         "directions": directions,
     }
@@ -123,6 +131,8 @@ def build_history(db: Session, university: str) -> dict:
     )
     run_ids = [r.id for r in ok_runs]
     run_time_by_id = {r.id: r.started_at for r in ok_runs}
+    run_model_by_id = {r.id: r.model_version for r in ok_runs}
+    run_coverage_by_id = {r.id: r.coverage for r in ok_runs}
 
     snapshots = (
         db.query(CompetitorSnapshot)
@@ -152,11 +162,17 @@ def build_history(db: Session, university: str) -> dict:
         series[snap.direction_id]["points"].append({
             "run_id": snap.run_id,
             "timestamp": run_time_by_id.get(snap.run_id),
+            "model_version": run_model_by_id.get(snap.run_id),
+            "coverage": run_coverage_by_id.get(snap.run_id),
             "position": snap.position,
             "total_score": snap.total_score,
             "priority": snap.priority,
             "predicted_cutoff_score": sim.predicted_cutoff_score if sim else None,
             "predicted_gap": sim.predicted_gap if sim else None,
+            "application_deadline_at": sim.application_deadline_at if sim else None,
+            "time_left_ratio": sim.time_left_ratio if sim else None,
+            "new_applicant_risk_factor": sim.new_applicant_risk_factor if sim else None,
+            "expected_new_applicants": sim.expected_new_applicants if sim else None,
             "probability_pct": sim.probability_pct if sim else None,
             "standalone_probability_pct": sim.standalone_probability_pct if sim else None,
             "real_competitor_position": sim.real_competitor_position if sim else None,
@@ -200,9 +216,17 @@ def build_events(db: Session, university: str) -> dict:
 @router.post("/refresh")
 def refresh(university: str = "МАИ"):
     if university == "Бауманка":
-        run = run_bauman_sync(trigger="manual")
+        run = (
+            run_bauman_full_snapshot_sync(trigger="manual")
+            if FULL_SNAPSHOT_DATABASE_URL
+            else run_bauman_sync(trigger="manual")
+        )
     elif university == "МАИ Госуслуги":
-        run = run_mai_gosuslugi_sync(trigger="manual")
+        run = (
+            run_mai_full_snapshot_sync(trigger="manual")
+            if FULL_SNAPSHOT_DATABASE_URL
+            else run_mai_gosuslugi_sync(trigger="manual")
+        )
     else:
         run = run_full_sync(trigger="manual")
     # После ручного синка пересобираем статическую страницу.
