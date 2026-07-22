@@ -4,7 +4,7 @@ from database.db import Base
 
 
 class TrackedApplicant(Base):
-    """Абитуриент, за которым следим (пока один - Варя, но не хардкодим)."""
+    """Абитуриент, за которым следим; модель не хардкодит конкретного человека."""
 
     __tablename__ = "tracked_applicants"
 
