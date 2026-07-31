@@ -27,6 +27,7 @@ from models import ApplicantChangeEvent, CompetitorSnapshot, Direction, MonitorR
 from services.monte_carlo import compute_simulation
 
 BAUMAN_UNIVERSITY = "Бауманка"
+BAUMAN_MAIN_PLACE_TYPE = "Основные места в рамках КЦП"
 
 
 class FullSnapshotImportError(RuntimeError):
@@ -39,6 +40,7 @@ class SnapshotSpec:
     snapshots_table: str
     groups_table: str
     rows_table: str
+    place_type: str | None = None
 
 
 SPECS = {
@@ -53,6 +55,7 @@ SPECS = {
         snapshots_table="bauman_snapshots",
         groups_table="bauman_competition_groups",
         rows_table="bauman_applicant_rows",
+        place_type=BAUMAN_MAIN_PLACE_TYPE,
     ),
 }
 
@@ -230,19 +233,37 @@ def _read_source_snapshot(source_conn, spec: SnapshotSpec) -> tuple[dict, list[d
     if snapshot is None:
         raise FullSnapshotImportError(f"No ok snapshot found in {spec.snapshots_table}")
 
+    source_params = {}
+    group_filter = ""
+    if spec.place_type:
+        source_params["place_type"] = spec.place_type
+        group_filter = "where place_type = :place_type"
+
     groups = (
         source_conn.execute(
             text(
                 f"""
                 select id, group_id, okso_code, name, seats
                 from {spec.groups_table}
+                {group_filter}
                 order by id
                 """
-            )
+            ),
+            source_params,
         )
         .mappings()
         .all()
     )
+    row_group_filter = ""
+    if spec.place_type:
+        row_group_filter = f"""
+                and group_id in (
+                    select id
+                    from {spec.groups_table}
+                    where place_type = :place_type
+                )
+                """
+    row_params = {"snapshot_id": snapshot["id"], **source_params}
     rows = (
         source_conn.execute(
             text(
@@ -250,9 +271,10 @@ def _read_source_snapshot(source_conn, spec: SnapshotSpec) -> tuple[dict, list[d
                 select application_id, group_id, position, score, priority, consent
                 from {spec.rows_table}
                 where snapshot_id = :snapshot_id
+                {row_group_filter}
                 """
             ),
-            {"snapshot_id": snapshot["id"]},
+            row_params,
         )
         .mappings()
         .all()

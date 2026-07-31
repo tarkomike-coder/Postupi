@@ -74,6 +74,70 @@ def _prepare_source_db(path):
     conn.close()
 
 
+def _prepare_bauman_source_db(path):
+    conn = sqlite3.connect(path)
+    cur = conn.cursor()
+    cur.executescript(
+        """
+        create table bauman_snapshots (
+            id integer primary key,
+            status text not null,
+            started_at text,
+            finished_at text,
+            groups_count integer,
+            rows_count integer,
+            unique_applications_count integer
+        );
+        create table bauman_competition_groups (
+            id integer primary key,
+            group_id integer not null,
+            okso_code text,
+            name text not null,
+            seats integer,
+            place_type text
+        );
+        create table bauman_applicant_rows (
+            id integer primary key,
+            snapshot_id integer not null,
+            group_id integer not null,
+            application_id text not null,
+            position integer,
+            score integer,
+            priority integer,
+            consent boolean,
+            category text
+        );
+        """
+    )
+    cur.execute(
+        "insert into bauman_snapshots values (1, 'ok', '2026-07-29 18:00:00', "
+        "'2026-07-29 18:10:00', 1, 2, 2)"
+    )
+    cur.executemany(
+        "insert into bauman_competition_groups values (?, ?, ?, ?, ?, ?)",
+        [
+            (1, 128864, "09.03.01", "Информатика и вычислительная техника", 1,
+             "Основные места в рамках КЦП"),
+            (2, 129238, "09.03.01", "Информатика и вычислительная техника", 1,
+             "Платные места"),
+        ],
+    )
+    cur.executemany(
+        """
+        insert into bauman_applicant_rows
+        (snapshot_id, group_id, application_id, position, score, priority, consent, category)
+        values (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (1, 1, "999999", 1, 100, 2, True, None),
+            (1, 2, "999999", 1, 100, 1, True, None),
+            (1, 1, "1422086", 2, 90, 2, False, None),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+
 class FullSnapshotImportTests(unittest.TestCase):
     def test_full_cascade_uses_direction_outside_tracked_scope(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -111,6 +175,44 @@ class FullSnapshotImportTests(unittest.TestCase):
                 self.assertTrue(sim.deterministic_admitted)
                 self.assertEqual(sim.real_competitor_position, 1)
                 self.assertEqual(sim.real_competitor_count, 0)
+            finally:
+                db.close()
+                engine.dispose()
+
+    def test_bauman_full_cascade_excludes_paid_competitions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source_path = os.path.join(tmp, "source.sqlite")
+            target_path = os.path.join(tmp, "target.sqlite")
+            _prepare_bauman_source_db(source_path)
+
+            os.environ["DATABASE_URL"] = f"sqlite:///{target_path}"
+            os.environ["FULL_SNAPSHOT_DATABASE_URL"] = f"sqlite:///{source_path}"
+            _reset_backend_modules()
+
+            from database.migrations import ensure_schema
+            from database.db import SessionLocal, engine
+            from models import CompetitorSnapshot, Direction, SimulationResult, TrackedApplicant
+            from services.full_snapshot_import import run_bauman_full_snapshot_sync
+
+            ensure_schema()
+            run = run_bauman_full_snapshot_sync(trigger="test")
+
+            db = SessionLocal()
+            try:
+                self.assertEqual(run.status, "ok", run.error_message)
+                self.assertEqual(run.directions_scraped, 1)
+                self.assertEqual(db.query(Direction).count(), 1)
+                self.assertEqual(db.query(CompetitorSnapshot).count(), 2)
+
+                applicant = db.query(TrackedApplicant).filter_by(unique_code="1422086").one()
+                ivt = db.query(Direction).filter_by(external_group_id=128864).one()
+                sim = (
+                    db.query(SimulationResult)
+                    .filter_by(run_id=run.id, tracked_applicant_id=applicant.id, direction_id=ivt.id)
+                    .one()
+                )
+                self.assertEqual(sim.real_competitor_position, 2)
+                self.assertEqual(sim.real_competitor_count, 1)
             finally:
                 db.close()
                 engine.dispose()
